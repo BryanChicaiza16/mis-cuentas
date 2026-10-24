@@ -146,8 +146,25 @@ summary .num{font-weight:600}
 .split b{font-family:var(--f-num);color:var(--ink);font-weight:600}
 
 .filebtn{display:inline-flex;align-items:center;font:inherit;font-weight:600;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:10px 14px;font-size:15px}
-.tabs nav{grid-template-columns:repeat(5,1fr)}
-.tabs button{font-size:.74rem}
+.tabs nav{grid-template-columns:repeat(6,1fr)}
+.tabs button{font-size:.7rem;padding:8px 1px}
+/* Plan mes a mes */
+.pmes{display:flex;flex-direction:column;gap:10px}
+.pmes .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.pmes .head h2{text-transform:capitalize}
+.pl{display:grid;grid-template-columns:auto minmax(0,1fr) 108px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.pl:first-child{border-top:0}
+.pl .sg{font-family:var(--f-num);font-weight:600;width:1.1em;text-align:center}
+.pl.in .sg{color:var(--save)} .pl.out .sg{color:var(--debt)}
+.pl input{font-family:var(--f-num);text-align:right;padding:6px 9px}
+.pl .n{min-width:0;overflow-wrap:anywhere}
+.pl .n small{display:block;color:var(--muted);font-size:.78rem}
+.queda{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--sunk);border-radius:12px;padding:10px 12px;font-weight:600}
+.queda .num{font-size:1.1rem}
+.queda.ok .num{color:var(--save)} .queda.bad{background:var(--debt-soft)} .queda.bad .num{color:var(--debt)}
+.chk{border-radius:999px;padding:4px 10px;font-size:.78rem}
+.chk[aria-pressed="true"]{background:var(--save-soft);color:var(--save);border-color:var(--save)}
+
 html{-webkit-text-size-adjust:100%}
 :root{padding-top:env(safe-area-inset-top,0px)}
 input,select{font-size:16px}
