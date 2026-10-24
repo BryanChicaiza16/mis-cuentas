@@ -3,6 +3,7 @@ const TABS=[
   {id:'hoy',label:'Hoy',icon:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'},
   {id:'mes',label:'Mes',icon:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'},
   {id:'reparto',label:'Reparto',icon:'<path d="M12 3v9l7 4"/><circle cx="12" cy="12" r="9"/>'},
+  {id:'plan',label:'Plan',icon:'<path d="M4 19h16M7 16V9M12 16V5M17 16v-4"/>'},
   {id:'deuda',label:'Tarjetas',icon:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h4"/>'},
   {id:'cuenta',label:'Cuenta',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 5-6 8-6s6.5 2 8 6"/>'}
 ];
@@ -18,6 +19,8 @@ const DEFAULT_SETTINGS={cats:[
 ],presupuesto:{},tarjetas:null};
 const DEFAULT_CARDS=[{id:'visa',nombre:'Visa',corte:15,pago:31},{id:'discover',nombre:'Discover',corte:15,pago:1}];
 const PROTECTED=['tarjeta','ahorro','otros'];
+const DEFAULT_PLAN={v:2,mac:{meta:0,pagos:[]},meses:[]};
+const DEFAULT_COBROS={lista:[]};
 const CASH={efectivo:'Efectivo',debito:'Débito / transferencia'};
 
 const S={db:null,uid:null,mode:'local',ready:false,settings:null,deuda:null,ahorro:null,months:{},
@@ -121,6 +124,8 @@ function saveMonth(k){saveDoc('m'+k,S.months[k])}
 function saveSettings(){saveDoc('settings',S.settings)}
 function saveDeuda(){saveDoc('deuda',S.deuda)}
 function saveAhorro(){saveDoc('ahorro',S.ahorro)}
+function savePlan(){saveDoc('plan',S.plan)}
+function saveCobros(){saveDoc('cobros',S.cobros)}
 
 // ---------- cálculos ----------
 function monthTotals(m){
@@ -475,7 +480,7 @@ async function importar(file){
   let data;try{data=JSON.parse(await file.text())}catch(e){toast('Ese archivo no es un respaldo válido');return}
   const docs=data&&data.docs;
   if(!docs||typeof docs!=='object'||!docs.settings){toast('El archivo no tiene datos de Mis Cuentas');return}
-  const keys=Object.keys(docs).filter(k=>/^(settings|deuda|ahorro|m\d{4}-\d{2})$/.test(k));
+  const keys=Object.keys(docs).filter(k=>/^(settings|deuda|ahorro|plan|cobros|m\d{4}-\d{2})$/.test(k));
   keys.forEach(k=>Store.set(k,docs[k]));
   toast(`Respaldo cargado: ${keys.filter(k=>k[0]==='m').length} mes(es) de datos`);
   await loadAll();render();
@@ -488,6 +493,55 @@ document.addEventListener('change',async e=>{
   if(box&&!box.querySelector('[data-act="confirmimp"]')){box.insertAdjacentHTML('beforeend',`<div class="alert"><div class="grow">¿Reemplazar tus datos actuales con <b>${esc(f.name)}</b>?</div><button type="button" class="primary" data-act="confirmimp">Sí, cargar</button></div>`)}
 });
 
+function planMes(pm){
+  const ins=r2(pm.lineas.filter(l=>l.t==='in').reduce((a,l)=>a+l.m,0));
+  const outs=r2(pm.lineas.filter(l=>l.t==='out').reduce((a,l)=>a+l.m,0));
+  const q=r2(ins-outs);const actual=pm.k===ym(new Date());
+  return `<section class="card pmes">
+    <div class="head"><div><h2>${esc(monthName(pm.k))}</h2><span class="note">${esc(pm.sub)}</span></div>${actual?'<span class="pill fijo">Este mes</span>':''}</div>
+    <div>${pm.lineas.map(l=>`<div class="pl ${l.t}">
+      <span class="sg" aria-hidden="true">${l.t==='in'?'+':'−'}</span>
+      <div class="n"><b>${esc(l.n)}</b>${l.sub?`<small>${esc(l.sub)}</small>`:''}</div>
+      <input id="pl-${esc(pm.k)}-${esc(l.id)}" data-pl="${esc(pm.k)}|${esc(l.id)}" inputmode="decimal" value="${fmtN.format(l.m)}" aria-label="${esc(l.n)}">
+    </div>`).join('')}</div>
+    <div class="queda ${q<0?'bad':q<10?'':'ok'}"><span>${q<0?'Te falta':'Te sobra'}</span><span class="num">${$$(Math.abs(q))}</span></div>
+    ${pm.nota?`<p class="note" style="margin:0">${esc(pm.nota)}</p>`:''}
+  </section>`;
+}
+async function viewPlan(){
+  const P=S.plan,mac=P.mac;
+  const pag=r2(mac.pagos.filter(p=>p.hecho).reduce((a,p)=>a+p.monto,0));const meta=mac.meta||0;
+  const prog=r2(mac.pagos.reduce((a,p)=>a+p.monto,0));
+  const cb=S.cobros.lista;const pend=r2(cb.filter(c=>!c.cobrado).reduce((a,c)=>a+c.monto,0));
+  return header('Mi plan','Noviembre a febrero')+
+  `<div class="alert soft"><div><b>La regla hasta febrero:</b> cero compras nuevas con tarjeta. Todo lo que pases ahora se suma a los meses que vienen.</div></div>
+  ${meta>0?`<section class="card">
+    <div class="row between"><h2>MacBook Air M1</h2><span class="num">${$$(pag)} de ${$$(mac.meta)}</span></div>
+    <div class="bar save"><i style="width:${Math.min(100,pag/mac.meta*100)}%"></i></div>
+    ${prog<mac.meta?`<div class="alert"><div><b>Faltan ${$$(mac.meta-prog)} en el plan.</b> Cúbrelos con el colchón para terminar antes de febrero.</div></div>`:'<p class="note" style="margin:0">Con este plan la Mac queda pagada en diciembre, antes del diferido de la Visa.</p>'}
+    <div class="list">${mac.pagos.map(p=>`<div class="item" style="grid-template-columns:auto minmax(0,1fr) 100px auto">
+      <span class="t">${esc(monthName(p.mes).split(' ')[0].slice(0,3))}</span>
+      <div class="d"><b>${esc(p.desc)}</b></div>
+      <input id="mac-${esc(p.id)}" data-mac="${esc(p.id)}" inputmode="decimal" value="${fmtN.format(p.monto)}" aria-label="${esc(p.desc)}" style="font-family:var(--f-num);text-align:right;padding:6px 9px">
+      <button type="button" class="chk" data-act="machecho" data-id="${esc(p.id)}" aria-pressed="${p.hecho}">${p.hecho?'Pagado':'Pagar'}</button></div>`).join('')}</div>
+  </section>`:''}
+  <section class="card">
+    <div class="row between"><h2>Me deben</h2><span class="num" style="color:var(--save)">${$$(pend)}</span></div>
+    <p class="note" style="margin:0">Cuando te paguen, toca <b>Me pagó</b> y se suma como ingreso de este mes.</p>
+    <div class="list">${cb.map(c=>`<div class="item" style="grid-template-columns:minmax(0,1fr) auto auto auto">
+      <div class="d"><b style="${c.cobrado?'color:var(--muted);text-decoration:line-through':''}">${esc(c.nombre)}</b></div>
+      <span class="m">${$$(c.monto)}</span>
+      ${c.cobrado?'<span class="pill ahorro">Cobrado</span>':`<button type="button" class="chk" data-act="cobrar" data-id="${esc(c.id)}">Me pagó</button>`}
+      ${delBtn('delcobro',`data-id="${esc(c.id)}"`)}</div>`).join('')}</div>
+    <form id="f-cobro" class="row" autocomplete="off" style="align-items:flex-end">
+      <label class="grow">Quién<input id="cb-nombre" placeholder="Nombre" required></label>
+      <label style="width:110px">Monto<input id="cb-monto" inputmode="decimal" placeholder="0,00" required></label>
+      <button type="submit">Agregar</button></form>
+  </section>
+  ${P.meses.length?P.meses.map(planMes).join(''):'<div class="empty">Aún no tienes un plan mes a mes. Pídele a Claude que te arme uno y cárgalo desde Cuenta → Cargar respaldo.</div>'}
+  <p class="note" style="margin:0">Los montos son editables: cuando sepas la cifra real (por ejemplo, el corte de enero), cámbiala y el saldo del mes se recalcula.</p>`;
+}
+
 // ---------- render ----------
 let renderSeq=0;
 async function render(){
@@ -496,7 +550,7 @@ async function render(){
   document.querySelector('.tabs').hidden=!!S.needLogin;
   if(S.needLogin){document.getElementById('app').innerHTML=viewLogin();return}
   if(!S.ready)return;
-  const v={hoy:viewHoy,mes:viewMes,reparto:viewReparto,deuda:viewDeuda,cuenta:viewCuenta}[S.tab];
+  const v={hoy:viewHoy,mes:viewMes,reparto:viewReparto,plan:viewPlan,deuda:viewDeuda,cuenta:viewCuenta}[S.tab];
   const html=await v();if(seq!==renderSeq)return;
   document.getElementById('app').innerHTML=html;
 }
@@ -526,6 +580,10 @@ document.addEventListener('click',async e=>{
   if(act==='editcard'){S.editCard=b.dataset.id;S.addCard=false;render();return}
   if(act==='addcard'){S.addCard=true;S.editCard=null;render();return}
   if(act==='cancelcard'){S.addCard=false;S.editCard=null;render();return}
+  if(act==='machecho'){const p=S.plan.mac.pagos.find(x=>x.id===b.dataset.id);if(!p)return;p.hecho=!p.hecho;savePlan();toast(p.hecho?`Pago de ${$$(p.monto)} marcado`:'Pago desmarcado');render();return}
+  if(act==='cobrar'){const c=S.cobros.lista.find(x=>x.id===b.dataset.id);if(!c)return;c.cobrado=true;saveCobros();
+    const k=ym(new Date());const m=await month(k);m.ingresos.push({id:uid(),monto:c.monto,desc:'Me pagó '+c.nombre,fecha:ymd(new Date()),metodo:'efectivo'});saveMonth(k);
+    toast(`${c.nombre} te pagó ${$$(c.monto)}`);render();return}
   if(act==='pagarprog'){const p=progs().find(x=>x.id===b.dataset.id);if(!p)return;const c=card(p.tarjetaId);
     S.deuda.programados=progs().filter(x=>x.id!==p.id);
     if(c)await addGasto(p.monto,'tarjeta','Pago programado '+c.nombre,{metodo:'debito',tarjetaId:c.id});else saveDeuda();
@@ -537,6 +595,7 @@ document.addEventListener('click',async e=>{
     if(act==='delcat'){S.settings.cats=S.settings.cats.filter(c=>c.id!==b.dataset.id);delete S.settings.presupuesto[b.dataset.id];if(S.selCat===b.dataset.id)S.selCat=defaultCat();saveSettings();toast('Categoría quitada')}
     if(act==='delabono'){const ab=S.deuda.abonos.find(x=>x.id===b.dataset.id);S.deuda.abonos=S.deuda.abonos.filter(x=>x.id!==b.dataset.id);saveDeuda();
       if(ab&&ab.movId){S.ahorro.movs=S.ahorro.movs.filter(x=>x.id!==ab.movId);saveAhorro()}toast('Abono borrado')}
+    if(act==='delcobro'){S.cobros.lista=S.cobros.lista.filter(x=>x.id!==b.dataset.id);saveCobros();toast('Quitado de la lista')}
     if(act==='delprog'){S.deuda.programados=progs().filter(x=>x.id!==b.dataset.id);saveDeuda();toast('Pago programado quitado')}
     if(act==='delcard'){const id=b.dataset.id;S.settings.tarjetas=cards().filter(c=>c.id!==id);delete S.deuda.saldos[id];
       if(S.selMet===id)S.selMet='efectivo';S.editCard=null;saveSettings();saveDeuda();toast('Tarjeta quitada')}
@@ -544,7 +603,13 @@ document.addEventListener('click',async e=>{
   }
 });
 document.addEventListener('change',e=>{
-  const id=e.target.dataset&&e.target.dataset.budget;if(!id)return;
+  const ds=e.target.dataset||{};
+  if(ds.pl||ds.mac){const v=e.target.value.trim()===''?0:parseMoney(e.target.value);
+    if(isNaN(v)||v<0){toast('Escribe un monto válido, por ejemplo 25,50');return}
+    if(ds.pl){const [k,lid]=ds.pl.split('|');const pm=S.plan.meses.find(x=>x.k===k);const l=pm&&pm.lineas.find(x=>x.id===lid);if(l)l.m=v}
+    else{const p=S.plan.mac.pagos.find(x=>x.id===ds.mac);if(p)p.monto=v}
+    savePlan();render();return}
+  const id=ds.budget;if(!id)return;
   const v=e.target.value.trim()===''?0:parseMoney(e.target.value);
   if(isNaN(v)||v<0){toast('Escribe un monto válido, por ejemplo 25,50');return}
   S.settings.presupuesto[id]=v;saveSettings();render();
@@ -599,6 +664,8 @@ document.addEventListener('submit',async e=>{
     else{await addGasto(n,'tarjeta','Abono '+c.nombre,{metodo:'debito',tarjetaId:id})}
     toast(`Abono de ${$$(n)} a ${c.nombre}`)}
   else if(f.id==='f-ahorro'){const n=need('ah-monto');if(n==null)return;await addGasto(n,'ahorro','Aporte al ahorro',{metodo:'debito'});toast(`Guardaste ${$$(n)}`)}
+  else if(f.id==='f-cobro'){const nombre=val('cb-nombre').trim();const n=need('cb-monto');if(!nombre||n==null)return;
+    S.cobros.lista.push({id:uid(),nombre,monto:n,cobrado:false});saveCobros();toast(`${nombre} te debe ${$$(n)}`)}
   else if(f.id==='f-meta'){const v=val('ah-meta').trim()===''?0:parseMoney(val('ah-meta'));if(isNaN(v)||v<0){toast('Escribe un monto válido');return}S.ahorro.meta=v;saveAhorro();toast(v?'Meta fijada':'Meta quitada')}
   else return;
   render();
@@ -624,6 +691,8 @@ async function loadAll(){
   const d=await loadDoc('deuda',{saldos:{},abonos:[]});
   S.deuda=d;S.deuda.saldos=S.deuda.saldos||{};S.deuda.abonos=S.deuda.abonos||[];S.deuda.programados=S.deuda.programados||[];
   S.ahorro=await loadDoc('ahorro',{meta:0,movs:[]});S.ahorro.movs=S.ahorro.movs||[];
+  S.plan=await loadDoc('plan',DEFAULT_PLAN);S.plan.mac=S.plan.mac||{meta:0,pagos:[]};S.plan.meses=S.plan.meses||[];
+  S.cobros=await loadDoc('cobros',DEFAULT_COBROS);S.cobros.lista=S.cobros.lista||[];
   const now=new Date();let start=new Date(now.getFullYear(),now.getMonth()-2,1);
   Object.values(S.deuda.saldos).forEach(s=>{if(s&&s.ts){const t=new Date(s.ts);const f=new Date(t.getFullYear(),t.getMonth(),1);if(f<start)start=f}});
   const lim=new Date(now.getFullYear(),now.getMonth()-24,1);if(start<lim)start=lim;
