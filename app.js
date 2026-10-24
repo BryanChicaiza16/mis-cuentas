@@ -516,9 +516,9 @@ async function viewPlan(){
   return header('Mi plan','Noviembre a febrero')+
   `<div class="alert soft"><div><b>La regla hasta febrero:</b> cero compras nuevas con tarjeta. Todo lo que pases ahora se suma a los meses que vienen.</div></div>
   ${meta>0?`<section class="card">
-    <div class="row between"><h2>MacBook Air M1</h2><span class="num">${$$(pag)} de ${$$(mac.meta)}</span></div>
+    <div class="row between"><h2>${esc(mac.titulo||'MacBook Air M1')}</h2><span class="num">${$$(pag)} de ${$$(mac.meta)}</span></div>
     <div class="bar save"><i style="width:${Math.min(100,pag/mac.meta*100)}%"></i></div>
-    ${prog<mac.meta?`<div class="alert"><div><b>Faltan ${$$(mac.meta-prog)} en el plan.</b> Cúbrelos con el colchón para terminar antes de febrero.</div></div>`:'<p class="note" style="margin:0">Con este plan la Mac queda pagada en diciembre, antes del diferido de la Visa.</p>'}
+    ${prog<mac.meta?`<div class="alert"><div><b>Faltan ${$$(mac.meta-prog)} en el plan.</b> Cúbrelos con el colchón para terminar antes de febrero.</div></div>`:'<p class="note" style="margin:0">Con este plan queda pagado antes de febrero, cuando empieza el diferido de la Visa.</p>'}
     <div class="list">${mac.pagos.map(p=>`<div class="item" style="grid-template-columns:auto minmax(0,1fr) 100px auto">
       <span class="t">${esc(monthName(p.mes).split(' ')[0].slice(0,3))}</span>
       <div class="d"><b>${esc(p.desc)}</b></div>
