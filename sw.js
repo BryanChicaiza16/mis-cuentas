@@ -1,6 +1,6 @@
 // Service worker de Mis Cuentas: guarda la app en el celular para que abra sin internet.
 // Cuando cambies cualquier archivo de la app, sube el número de CACHE para que los celulares descarguen la versión nueva.
-const CACHE = 'mis-cuentas-v2';
+const CACHE = 'mis-cuentas-v3';
 const APP = ['./', 'index.html', 'app.js', 'firebase-config.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'maskable-512.png', 'apple-touch-icon.png'];
 const CDN = ['www.gstatic.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
