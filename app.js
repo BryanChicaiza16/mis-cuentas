@@ -632,12 +632,40 @@ function icoArea(id){const a=area(id);const p={personal:'<path d="M12 20s-7-4.4-
 }
 const RELOJ='<svg class="rel" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 function hora12(h){if(!h)return '';const [a,b]=h.split(':').map(Number);return `${a%12||12}:${pad(b)} ${a<12?'am':'pm'}`}
+const REPITE={diario:'Cada día',laboral:'De lunes a viernes',semanal:'Cada semana',mensual:'Cada mes'};
+function pasoRepeticion(t,f){const d=parseDay(f);
+  if(t.rep==='diario')return shiftDay(f,1);
+  if(t.rep==='semanal')return shiftDay(f,7);
+  if(t.rep==='mensual')return ymd(dayIn(d.getFullYear(),d.getMonth()+1,t.repDia||d.getDate()));
+  const dow=d.getDay();return shiftDay(f,dow===5?3:dow===6?2:1);
+}
+function siguienteFecha(t,desde){let f=t.fecha;for(let i=0;i<2000&&f<=desde;i++)f=pasoRepeticion(t,f);return f}
+function proyectaEn(t,f){
+  if(!t.rep||t.hecha||!t.fecha||f<=t.fecha||f<=ymd(new Date()))return false;
+  let x=t.fecha;for(let i=0;i<2000&&x<f;i++)x=pasoRepeticion(t,x);return x===f;
+}
+function completarRepetida(t){
+  const hoy=ymd(new Date());const antes=t.fecha;const sig=siguienteFecha(t,antes>hoy?antes:hoy);
+  const copia=Object.assign({},t,{id:uid(),hecha:true,doneAt:Date.now(),fecha:antes<hoy?hoy:antes,repDe:t.id,antes,sig});
+  delete copia.rep;delete copia.repDia;
+  t.fecha=sig;delete t.gastoId;tareas().push(copia);
+  const limite=shiftDay(hoy,-60);S.vida.tareas.lista=tareas().filter(x=>!(x.repDe&&x.hecha&&x.fecha<limite));
+  return sig;
+}
+function deshacerRepetida(c){
+  const o=tareas().find(x=>x.id===c.repDe);
+  if(o&&o.fecha===c.sig){o.fecha=c.antes;if(c.gastoId)o.gastoId=c.gastoId;S.vida.tareas.lista=tareas().filter(x=>x.id!==c.id);return}
+  c.hecha=false;c.doneAt=0;
+}
+function tareaProy(t){
+  return `<div class="fila"><span class="punto" aria-hidden="true"></span><div class="ficha">${icoArea(t.area)}<div class="d"><b>${esc(t.titulo)}</b><small class="meta"><span>${esc(area(t.area).nombre)}</span><span>${esc(REPITE[t.rep]||'')}</span></small></div></div></div>`;
+}
 function tareaItem(t){
   const p=t.proyecto&&S.vida.proyectos.lista.find(x=>x.id===t.proyecto);
   const vencida=!t.hecha&&t.fecha&&t.fecha<ymd(new Date());
   return `<div class="fila"><button type="button" class="tick" data-act="vtarea" data-id="${esc(t.id)}" aria-pressed="${!!t.hecha}" aria-label="${t.hecha?'Marcar como pendiente':'Marcar como hecha'}: ${esc(t.titulo)}">${t.hecha?'✓':''}</button>
     <div class="ficha">${icoArea(t.area)}<div class="d"><b class="${t.hecha?'tachado':''}">${esc(t.titulo)}</b>
-      <small class="meta">${t.prio==='alta'&&!t.hecha?'<span class="pill deuda">Importante</span>':''}<span>${esc(area(t.area).nombre)}</span>${p?`<span>${esc(p.nombre)}</span>`:''}${t.fecha?`<span class="${vencida?'venc':''}">${esc(fechaTxt(t.fecha))}</span>`:''}${t.monto?`<span class="num">${$$(t.monto)}</span>`:''}</small>
+      <small class="meta">${t.prio==='alta'&&!t.hecha?'<span class="pill deuda">Importante</span>':''}<span>${esc(area(t.area).nombre)}</span>${t.rep?`<span>${esc(REPITE[t.rep])}</span>`:''}${p?`<span>${esc(p.nombre)}</span>`:''}${t.fecha?`<span class="${vencida?'venc':''}">${esc(fechaTxt(t.fecha))}</span>`:''}${t.monto?`<span class="num">${$$(t.monto)}</span>`:''}</small>
       ${t.monto?(t.gastoId?'<span class="pill ahorro">Registrado en Cuentas</span>':`<button type="button" class="enlace" data-act="vpasar" data-id="${esc(t.id)}">Registrar ${$$(t.monto)} en Cuentas</button>`):''}</div>
     ${delBtn('delvtarea',`data-id="${esc(t.id)}"`)}</div></div>`;
 }
@@ -665,6 +693,7 @@ function tareaForm(o){
     <label class="grow">Fecha (opcional)<input type="date" id="vt-fecha" value="${esc(o.fecha||'')}"></label></div>
     <details class="mas"><summary><span>Más opciones</span></summary><div class="masin">
       <label class="check"><input type="checkbox" id="vt-prio"> Es importante</label>
+      <label>¿Se repite?<select id="vt-rep"><option value="">No se repite</option>${Object.entries(REPITE).map(([k,n])=>`<option value="${k}">${n}</option>`).join('')}</select></label>
       <label>¿Cuesta dinero? (opcional)<input id="vt-monto" inputmode="decimal" placeholder="0,00"></label>
       ${ps.length?`<label>Proyecto<select id="vt-proy"><option value="">Sin proyecto</option>${ps.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('')}</select></label>`:''}
     </div></details>
@@ -695,7 +724,7 @@ function hojaAgregar(){
 }
 function tiraSemana(dia){
   const hoy=ymd(new Date());const dow=(parseDay(dia).getDay()+6)%7;
-  return `<div class="tira" role="group" aria-label="Días de la semana">${[0,1,2,3,4,5,6].map(i=>{const f=shiftDay(dia,i-dow);const d=parseDay(f);const hay=eventosDe(f).length||tareas().some(t=>t.fecha===f&&!t.hecha);
+  return `<div class="tira" role="group" aria-label="Días de la semana">${[0,1,2,3,4,5,6].map(i=>{const f=shiftDay(dia,i-dow);const d=parseDay(f);const hay=eventosDe(f).length||tareas().some(t=>(t.fecha===f&&!t.hecha)||proyectaEn(t,f));
     return `<button type="button" class="tdia ${f===hoy?'esHoy':''}" data-act="vdia" data-f="${f}" aria-pressed="${f===dia}" aria-label="${esc(dayLabel(f))}"><small>${DIAS.find(x=>x[0]===d.getDay())[1]}</small><span>${d.getDate()}</span><i class="${hay?'hay':''}"></i></button>`}).join('')}</div>`;
 }
 
@@ -706,6 +735,7 @@ async function vHoy(){
   const delDia=tareas().filter(x=>x.fecha===dia||(esHoy&&!x.hecha&&x.fecha&&x.fecha<hoy));
   const lista=delDia.slice().sort((a,b)=>(!!a.hecha-!!b.hecha)||ordenTareas(a,b));
   const sinF=tareas().filter(x=>!x.hecha&&!x.fecha).sort(ordenTareas);
+  const proy=tareas().filter(x=>proyectaEn(x,dia));
   const evs=eventosDe(dia);const hs=S.vida.habitos.lista;const fin=finanzasDe(dia);
   const hechos=delDia.filter(x=>x.hecha).length+hs.filter(h=>h.hechos[dia]).length;const total=delDia.length+hs.length;const pct=total?Math.round(hechos/total*100):0;
   const prox=(esHoy?evs.filter(e=>e.hora&&e.hora>hm(now)):evs)[0];
@@ -724,7 +754,7 @@ async function vHoy(){
   <section class="sec"><div class="row between"><h2>Agenda</h2>${evs.length?`<span class="note">${evs.length} evento${evs.length===1?'':'s'}</span>`:''}</div>
     <div class="tl">${evs.map(e=>eventoItem(e)).join('')}${fin.map(finItem).join('')}${!evs.length&&!fin.length?'<div class="empty">Nada agendado este día.</div>':''}</div></section>
   <section class="sec"><div class="row between"><h2>Pendientes</h2>${lista.length?`<span class="note">${lista.filter(x=>!x.hecha).length} por hacer</span>`:''}</div>
-    <div class="tl">${lista.length?lista.map(tareaItem).join(''):'<div class="empty">No tienes pendientes este día. Toca + para agregar uno.</div>'}</div>
+    <div class="tl">${lista.length||proy.length?lista.map(tareaItem).join('')+proy.map(tareaProy).join(''):'<div class="empty">No tienes pendientes este día. Toca + para agregar uno.</div>'}</div>
     ${sinF.length?`<details class="mas"><summary><span>Sin fecha (${sinF.length})</span></summary><div class="tl" style="padding-top:10px">${sinF.map(tareaItem).join('')}</div></details>`:''}</section>
   ${hs.length?`<section class="sec"><div class="row between"><h2>Hábitos</h2><button type="button" class="enlace" data-act="irtab" data-id="habitos">Ver todos</button></div><div class="tl">${hs.map(x=>habitoItem(x,dia)).join('')}</div></section>`:''}
   ${ps.length?`<section class="sec"><h2>Metas</h2><div class="card">${ps.map(p=>{const pt=tareas().filter(x=>x.proyecto===p.id);const d=pt.filter(x=>x.hecha).length;const w=pt.length?d/pt.length*100:0;return `<div class="meta-f"><div class="row between"><b>${esc(p.nombre)}</b><span class="note">${d} de ${pt.length}</span></div><div class="bar grad"><i style="width:${w}%"></i></div></div>`}).join('')}</div></section>`:''}
@@ -744,9 +774,9 @@ async function vSemana(){
   return header('Mi semana','Mi vida')+`
   <div class="monthnav"><button type="button" data-act="vsem" data-d="-1" aria-label="Semana anterior">‹</button><b style="text-transform:none">${esc(rango)}</b><button type="button" data-act="vsem" data-d="1" aria-label="Semana siguiente">›</button>${S.vSem?'<button type="button" data-act="vsem" data-d="0">Hoy</button>':''}</div>
   ${S.gcalMsg?`<div class="alert"><div class="grow">${esc(S.gcalMsg)}</div><button type="button" class="ghost" data-act="vgcalok" aria-label="Cerrar aviso">✕</button></div>`:''}
-  ${dias.map(f=>{const evs=eventosDe(f);const fin=finanzasDe(f);const ts=tareas().filter(x=>x.fecha===f).sort(ordenTareas);const vacio=!evs.length&&!fin.length&&!ts.length;
+  ${dias.map(f=>{const evs=eventosDe(f);const fin=finanzasDe(f);const ts=tareas().filter(x=>x.fecha===f).sort(ordenTareas);const pr=tareas().filter(x=>proyectaEn(x,f));const vacio=!evs.length&&!fin.length&&!ts.length&&!pr.length;
     return `<section class="sec dia"><div class="row between"><h2 style="text-transform:capitalize">${esc(parseDay(f).toLocaleDateString('es-EC',{weekday:'long',day:'numeric'}))}</h2>${f===hoy?'<span class="pill fijo">Hoy</span>':''}</div>
-      ${vacio?'<div class="empty" style="padding:0">Libre</div>':`<div class="tl">${evs.map(e=>eventoItem(e,true)).join('')}${fin.map(finItem).join('')}${ts.map(tareaItem).join('')}</div>`}</section>`}).join('')}`;
+      ${vacio?'<div class="empty" style="padding:0">Libre</div>':`<div class="tl">${evs.map(e=>eventoItem(e,true)).join('')}${fin.map(finItem).join('')}${ts.map(tareaItem).join('')}${pr.map(tareaProy).join('')}</div>`}</section>`}).join('')}`;
 }
 async function vAreas(){
   if(S.vArea&&areas().some(a=>a.id===S.vArea))return vAreaDetalle(S.vArea);
@@ -816,7 +846,11 @@ async function vidaAct(act,b){
   if(act==='vsem'){const d=+b.dataset.d;S.vSem=d===0?0:S.vSem+d;render();return true}
   if(act==='varea'){S.vArea=b.dataset.id;S.vPre=null;await render();window.scrollTo(0,0);return true}
   if(act==='vareaback'){S.vArea=null;S.vPre=null;await render();window.scrollTo(0,0);return true}
-  if(act==='vtarea'){const t=tareas().find(x=>x.id===b.dataset.id);if(!t)return true;t.hecha=!t.hecha;t.doneAt=t.hecha?Date.now():0;saveV('tareas');render();return true}
+  if(act==='vtarea'){const t=tareas().find(x=>x.id===b.dataset.id);if(!t)return true;
+    if(t.rep&&!t.hecha){const sig=completarRepetida(t);toast(`Hecho. Vuelve ${fechaTxt(sig)}`)}
+    else if(t.repDe&&t.hecha)deshacerRepetida(t);
+    else{t.hecha=!t.hecha;t.doneAt=t.hecha?Date.now():0}
+    saveV('tareas');render();return true}
   if(act==='vpasar'){const t=tareas().find(x=>x.id===b.dataset.id);if(!t)return true;
     if(!area(t.area).id){toast('Esta tarea ya no tiene área. Registra el gasto desde Cuentas.');return true}
     S.vPre=t.id;S.vArea=t.area;S.vtab='areas';guardarZona();await render();document.getElementById('f-agasto')?.scrollIntoView({block:'start'});return true}
@@ -827,7 +861,7 @@ async function vidaAct(act,b){
 }
 function delVida(act,b){
   const quitar=(k,id)=>{S.vida[k].lista=S.vida[k].lista.filter(x=>x.id!==id);saveV(k)};const id=b.dataset.id;
-  if(act==='delvtarea'){quitar('tareas',id);toast('Pendiente borrado')}
+  if(act==='delvtarea'){const tv=tareas().find(x=>x.id===id);quitar('tareas',id);toast(tv&&tv.rep?'Se quitó el pendiente y dejará de repetirse':'Pendiente borrado')}
   if(act==='delvevento'){const ev=S.vida.eventos.lista.find(x=>x.id===id);quitar('eventos',id);if(ev&&ev.gcalId)S.gcalMsg=`"${ev.titulo}" se quitó de la app, pero sigue en Google Calendar. Bórralo allí.`;toast('Quitado de la agenda')}
   if(act==='delvhab'){quitar('habitos',id);toast('Hábito quitado')}
   if(act==='delvnota'){quitar('notas',id);toast('Nota borrada')}
@@ -838,7 +872,10 @@ async function vidaSubmit(f,val,need){
   if(f.id==='f-vtarea'){const titulo=val('vt-titulo').trim();if(!titulo)return false;
     const mr=val('vt-monto').trim();const monto=mr===''?0:parseMoney(mr);if(isNaN(monto)||monto<0){toast('Escribe un costo válido, por ejemplo 25,50');return false}
     const pr=document.getElementById('vt-proy');const a=val('vt-area');S.lastArea=a;
-    tareas().push({id:uid(),titulo,area:a,fecha:val('vt-fecha'),prio:document.getElementById('vt-prio').checked?'alta':'normal',monto,proyecto:pr?pr.value:'',hecha:false,ts:Date.now()});saveV('tareas');toast('Pendiente agregado');S.vAdd=null;return true}
+    const rep=val('vt-rep');let fecha=val('vt-fecha');
+    if(rep&&!fecha)fecha=ymd(new Date());
+    if(rep==='laboral'){const dw=parseDay(fecha).getDay();if(dw===0)fecha=shiftDay(fecha,1);if(dw===6)fecha=shiftDay(fecha,2)}
+    tareas().push({id:uid(),titulo,area:a,fecha,...(rep?{rep,...(rep==='mensual'?{repDia:parseDay(fecha).getDate()}:{})}:{}),prio:document.getElementById('vt-prio').checked?'alta':'normal',monto,proyecto:pr?pr.value:'',hecha:false,ts:Date.now()});saveV('tareas');toast('Pendiente agregado');S.vAdd=null;return true}
   if(f.id==='f-vevento'){const titulo=val('ve-titulo').trim();if(!titulo)return false;
     const dias=[...f.querySelectorAll('[data-dia]:checked')].map(x=>+x.dataset.dia);const fecha=val('ve-fecha');
     if(!dias.length&&!fecha){toast('Elige una fecha o los días en que se repite');return false}
@@ -999,7 +1036,7 @@ document.addEventListener('submit',async e=>{
 });
 
 // ---------- inicio ----------
-const APP_VERSION='1.2.0';
+const APP_VERSION='1.3.0';
 function authMsg(e){const c=e&&e.code||'';
   if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return 'Correo o contraseña incorrectos';
   if(c.includes('email-already-in-use'))return 'Ese correo ya tiene cuenta. Toca "Ya tengo cuenta".';
