@@ -25,7 +25,7 @@ const CASH={efectivo:'Efectivo',debito:'Débito / transferencia'};
 
 const S={db:null,uid:null,mode:'local',ready:false,settings:null,deuda:null,ahorro:null,months:{},
   tab:'hoy',viewMonth:ym(new Date()),selCat:'comida',selMet:'efectivo',editCard:null,addCard:false,editG:null,
-  zona:'vida',vtab:'hoy',vSem:0,vArea:null,vPre:null,lastArea:null,vida:null,gcalMsg:''};
+  zona:'vida',vtab:'hoy',vSem:0,vArea:null,vPre:null,lastArea:null,vida:null,gcalMsg:'',vAdd:null,vDia:null};
 try{const t=localStorage.getItem('mc-tab'); if(t&&TABS.some(x=>x.id===t)) S.tab=t;
   const m=localStorage.getItem('mc-met'); if(m) S.selMet=m;
   if(localStorage.getItem('mc-zona')==='cuentas') S.zona='cuentas';
@@ -623,27 +623,43 @@ function gcalEstado(e,acciones){
 }
 
 // ---------- piezas de mi vida ----------
+function icoArea(id){const a=area(id);const p={personal:'<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  trabajo:'<rect x="4" y="8" width="16" height="11" rx="2"/><path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M4 13h16"/>',
+  universidad:'<path d="M3 9l9-4 9 4-9 4-9-4z"/><path d="M7 11v4c0 1.5 2.5 3 5 3s5-1.5 5-3v-4"/>',
+  iglesia:'<path d="M12 3v6M9.5 5.5h5M6 21v-8l6-4 6 4v8zM10 21v-4h4v4"/>',
+  emprendimientos:'<path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3zM10 19h4M10.5 22h3"/>'}[a.id]||'<circle cx="12" cy="12" r="6"/>';
+  return `<span class="ico" style="--c:var(--${esc(a.color)})" aria-hidden="true"><svg viewBox="0 0 24 24">${p}</svg></span>`;
+}
+const RELOJ='<svg class="rel" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+function hora12(h){if(!h)return '';const [a,b]=h.split(':').map(Number);return `${a%12||12}:${pad(b)} ${a<12?'am':'pm'}`}
 function tareaItem(t){
   const p=t.proyecto&&S.vida.proyectos.lista.find(x=>x.id===t.proyecto);
   const vencida=!t.hecha&&t.fecha&&t.fecha<ymd(new Date());
-  return `<div class="item vt"><button type="button" class="tick" data-act="vtarea" data-id="${esc(t.id)}" aria-pressed="${!!t.hecha}" aria-label="${t.hecha?'Marcar como pendiente':'Marcar como hecha'}: ${esc(t.titulo)}">${t.hecha?'✓':''}</button>
-    <div class="d"><b class="${t.hecha?'tachado':''}">${t.prio==='alta'&&!t.hecha?'<span class="pill deuda">Importante</span> ':''}${esc(t.titulo)}</b>
-      <small class="meta">${areaTag(t.area)}${p?`<span>${esc(p.nombre)}</span>`:''}${t.fecha?`<span class="${vencida?'venc':''}">${esc(fechaTxt(t.fecha))}</span>`:''}${t.monto?`<span class="num">${$$(t.monto)}</span>`:''}</small>
+  return `<div class="fila"><button type="button" class="tick" data-act="vtarea" data-id="${esc(t.id)}" aria-pressed="${!!t.hecha}" aria-label="${t.hecha?'Marcar como pendiente':'Marcar como hecha'}: ${esc(t.titulo)}">${t.hecha?'✓':''}</button>
+    <div class="ficha">${icoArea(t.area)}<div class="d"><b class="${t.hecha?'tachado':''}">${esc(t.titulo)}</b>
+      <small class="meta">${t.prio==='alta'&&!t.hecha?'<span class="pill deuda">Importante</span>':''}<span>${esc(area(t.area).nombre)}</span>${p?`<span>${esc(p.nombre)}</span>`:''}${t.fecha?`<span class="${vencida?'venc':''}">${esc(fechaTxt(t.fecha))}</span>`:''}${t.monto?`<span class="num">${$$(t.monto)}</span>`:''}</small>
       ${t.monto?(t.gastoId?'<span class="pill ahorro">Registrado en Cuentas</span>':`<button type="button" class="enlace" data-act="vpasar" data-id="${esc(t.id)}">Registrar ${$$(t.monto)} en Cuentas</button>`):''}</div>
-    ${delBtn('delvtarea',`data-id="${esc(t.id)}"`)}</div>`;
+    ${delBtn('delvtarea',`data-id="${esc(t.id)}"`)}</div></div>`;
 }
 function eventoItem(e,conBorrar){
   const rep=e.dias&&e.dias.length;
-  return `<div class="item v3"><span class="t">${esc(e.hora||'—')}${e.fin?'<br>'+esc(e.fin):''}</span>
-    <div class="d"><b>${esc(e.titulo)}</b><small class="meta">${areaTag(e.area)}${e.lugar?`<span>${esc(e.lugar)}</span>`:''}${rep?`<span>${e.cada===2?'Cada 15 días':e.dias.length===7?'Todos los días':'Cada semana'}</span>`:''}</small>${gcalEstado(e,conBorrar)}</div>
-    ${conBorrar?delBtn('delvevento',`data-id="${esc(e.id)}"`):'<span></span>'}</div>`;
+  return `<div class="fila"><span class="punto" aria-hidden="true"></span><div class="ficha">${icoArea(e.area)}
+    <div class="d"><b>${esc(e.titulo)}</b><small class="meta"><span>${esc(area(e.area).nombre)}</span>${e.lugar?`<span>${esc(e.lugar)}</span>`:''}${rep?`<span>${e.cada===2?'Cada 15 días':e.dias.length===7?'Todos los días':'Cada semana'}</span>`:''}</small>${gcalEstado(e,conBorrar)}</div>
+    <div class="cuando">${RELOJ}<span>${esc(hora12(e.hora)||'Sin hora')}</span>${e.fin?`<small>a ${esc(hora12(e.fin))}</small>`:''}</div>${conBorrar?delBtn('delvevento',`data-id="${esc(e.id)}"`):''}</div></div>`;
 }
 function finItem(x){
-  return `<div class="item v3"><span class="t">$</span><div class="d"><b>${esc(x.t)}</b><small class="meta"><span class="pill ${x.alerta?'deuda':'fijo'}">Cuentas</span>${x.monto?`<span class="num">${$$(x.monto)}</span>`:''}</small></div><button type="button" class="ghost" data-act="ircuentas" data-tab2="deuda" aria-label="Ver tarjetas">›</button></div>`;
+  return `<div class="fila"><span class="punto" aria-hidden="true"></span><button type="button" class="ficha botonf" data-act="ircuentas" data-tab2="deuda">
+    <span class="ico" style="--c:var(--${x.alerta?'debt':'a2'})" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span>
+    <div class="d"><b>${esc(x.t)}</b><small class="meta"><span>Cuentas</span>${x.monto?`<span class="num">${$$(x.monto)}</span>`:''}</small></div><span class="muted" aria-hidden="true">›</span></button></div>`;
+}
+function habitoItem(h,f){
+  const r=racha(h);const hecho=!!h.hechos[f];
+  return `<div class="fila"><button type="button" class="tick" data-act="vhab" data-id="${esc(h.id)}" data-f="${f}" aria-pressed="${hecho}" aria-label="${hecho?'Desmarcar':'Marcar'}: ${esc(h.nombre)}">${hecho?'✓':''}</button>
+    <div class="ficha">${icoArea(h.area)}<div class="d"><b class="${hecho?'tachado':''}">${esc(h.nombre)}</b><small class="meta"><span>${r?`Racha de ${r} día${r===1?'':'s'}`:'Empieza hoy'}</span></small></div></div></div>`;
 }
 function tareaForm(o){
   o=o||{};const ps=S.vida.proyectos.lista.filter(p=>!o.area||p.area===o.area);
-  return `<form class="card" id="f-vtarea" autocomplete="off"><h2>${esc(o.titulo||'Agregar pendiente')}</h2>
+  return `<form id="f-vtarea" class="forma" autocomplete="off">
     <label>¿Qué hay que hacer?<input id="vt-titulo" placeholder="Ej. entregar el deber de cálculo" required></label>
     <div class="row">${o.area?`<input type="hidden" id="vt-area" value="${esc(o.area)}">`:`<label class="grow">Área<select id="vt-area">${areaOptions(S.lastArea||'personal')}</select></label>`}
     <label class="grow">Fecha (opcional)<input type="date" id="vt-fecha" value="${esc(o.fecha||'')}"></label></div>
@@ -652,40 +668,74 @@ function tareaForm(o){
       <label>¿Cuesta dinero? (opcional)<input id="vt-monto" inputmode="decimal" placeholder="0,00"></label>
       ${ps.length?`<label>Proyecto<select id="vt-proy"><option value="">Sin proyecto</option>${ps.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('')}</select></label>`:''}
     </div></details>
-    <button class="primary" type="submit">Agregar pendiente</button></form>`;
+    <button class="primary block" type="submit">Agregar pendiente</button></form>`;
 }
-function habitoChecks(hoy){
-  const hs=S.vida.habitos.lista;if(!hs.length)return '';
-  return `<section class="card"><div class="row between"><h2>Hábitos de hoy</h2><span class="num">${hs.filter(h=>h.hechos[hoy]).length} de ${hs.length}</span></div>
-    <div class="chips">${hs.map(h=>`<button type="button" class="chip" data-act="vhab" data-id="${esc(h.id)}" data-f="${hoy}" aria-pressed="${!!h.hechos[hoy]}">${h.hechos[hoy]?'✓ ':''}${esc(h.nombre)}</button>`).join('')}</div></section>`;
+function eventoForm(){
+  const hoy=ymd(new Date());const a=S.vArea||S.lastArea||'personal';
+  return `<form id="f-vevento" class="forma" autocomplete="off">
+    <label>Qué es<input id="ve-titulo" placeholder="Ej. clase de cálculo, servicio del domingo" required></label>
+    <div class="row"><label class="grow">Área<select id="ve-area">${areaOptions(a)}</select></label>
+    <label class="grow">Lugar (opcional)<input id="ve-lugar"></label></div>
+    <div class="row"><label class="grow">Empieza<input type="time" id="ve-hora"></label><label class="grow">Termina<input type="time" id="ve-fin"></label></div>
+    <label>Fecha<input type="date" id="ve-fecha" value="${esc(S.vDia||hoy)}"></label>
+    <fieldset class="dias"><legend>O repetir estos días</legend><div class="chips">${DIAS.map(([n,l,nom])=>`<label class="diachk" title="${nom}"><input type="checkbox" data-dia="${n}" aria-label="${nom}"><span>${l}</span></label>`).join('')}</div></fieldset>
+    <label>Si se repite, ¿cada cuánto?<select id="ve-cada"><option value="1">Cada semana</option><option value="2">Cada 15 días, desde la semana de la fecha elegida</option></select></label>
+    <button class="primary block" type="submit">Agregar a la agenda</button></form>`;
+}
+function hojaAgregar(){
+  if(!S.vAdd)return '';
+  const conArea=S.vtab==='areas'&&S.vArea;
+  return `<div class="hoja-fondo" data-act="vaddx"></div><section class="hoja" role="dialog" aria-label="Agregar">
+    <div class="row between"><h2>Agregar</h2><button type="button" class="ghost" data-act="vaddx" aria-label="Cerrar">✕</button></div>
+    <div class="chips" role="group" aria-label="Qué quieres agregar">
+      <button type="button" class="chip" data-act="vadd" data-id="tarea" aria-pressed="${S.vAdd==='tarea'}">Pendiente</button>
+      <button type="button" class="chip" data-act="vadd" data-id="evento" aria-pressed="${S.vAdd==='evento'}">Evento</button>
+      <button type="button" class="chip" data-act="ircuentas" data-tab2="hoy">Gasto</button></div>
+    ${S.vAdd==='tarea'?tareaForm(conArea?{area:S.vArea}:{fecha:S.vtab==='hoy'?(S.vDia||ymd(new Date())):''}):eventoForm()}</section>`;
+}
+function tiraSemana(dia){
+  const hoy=ymd(new Date());const dow=(parseDay(dia).getDay()+6)%7;
+  return `<div class="tira" role="group" aria-label="Días de la semana">${[0,1,2,3,4,5,6].map(i=>{const f=shiftDay(dia,i-dow);const d=parseDay(f);const hay=eventosDe(f).length||tareas().some(t=>t.fecha===f&&!t.hecha);
+    return `<button type="button" class="tdia ${f===hoy?'esHoy':''}" data-act="vdia" data-f="${f}" aria-pressed="${f===dia}" aria-label="${esc(dayLabel(f))}"><small>${DIAS.find(x=>x[0]===d.getDay())[1]}</small><span>${d.getDate()}</span><i class="${hay?'hay':''}"></i></button>`}).join('')}</div>`;
 }
 
 // ---------- vistas de mi vida ----------
 async function vHoy(){
-  const now=new Date();const k=ym(now);const hoy=ymd(now);const m=await month(k);const t=monthTotals(m);
+  const now=new Date();const k=ym(now);const hoy=ymd(now);const dia=S.vDia||hoy;const esHoy=dia===hoy;const m=await month(k);const t=monthTotals(m);
   const gastHoy=r2(m.gastos.filter(g=>g.fecha===hoy&&cat(g.cat).tipo!=='ahorro').reduce((a,g)=>a+g.monto,0));
-  const pend=tareas().filter(x=>!x.hecha);
-  const hoyT=pend.filter(x=>x.fecha&&x.fecha<=hoy).sort(ordenTareas);
-  const sinF=pend.filter(x=>!x.fecha).sort(ordenTareas);
-  const hasta=shiftDay(hoy,7);const prox=pend.filter(x=>x.fecha&&x.fecha>hoy&&x.fecha<=hasta).length;
-  const evs=eventosDe(hoy);
+  const delDia=tareas().filter(x=>x.fecha===dia||(esHoy&&!x.hecha&&x.fecha&&x.fecha<hoy));
+  const lista=delDia.slice().sort((a,b)=>(!!a.hecha-!!b.hecha)||ordenTareas(a,b));
+  const sinF=tareas().filter(x=>!x.hecha&&!x.fecha).sort(ordenTareas);
+  const evs=eventosDe(dia);const hs=S.vida.habitos.lista;const fin=finanzasDe(dia);
+  const hechos=delDia.filter(x=>x.hecha).length+hs.filter(h=>h.hechos[dia]).length;const total=delDia.length+hs.length;const pct=total?Math.round(hechos/total*100):0;
+  const prox=(esHoy?evs.filter(e=>e.hora&&e.hora>hm(now)):evs)[0];
   const pago=cards().map(c=>({c,i:cycleInfo(c)})).filter(x=>x.i.diasPago>=0).sort((a,b)=>a.i.diasPago-b.i.diasPago)[0];
-  return header(dayLabel(hoy),'Mi vida')+cardAlerts()+`
-  <section class="card"><div class="row between"><h2>Pendientes de hoy</h2>${prox?`<button type="button" class="enlace" data-act="irtab" data-id="semana">${prox} más esta semana</button>`:''}</div>
-    <div class="list">${hoyT.length?hoyT.map(tareaItem).join(''):'<div class="empty">No tienes pendientes para hoy. Agrega abajo lo que quieras terminar y elige a qué área pertenece.</div>'}</div>
-    ${sinF.length?`<details><summary><span>Sin fecha</span><span class="num">${sinF.length}</span></summary><div class="list">${sinF.map(tareaItem).join('')}</div></details>`:''}
-  </section>
-  <section class="card"><h2>Agenda de hoy</h2>
-    <div class="list">${evs.length?evs.map(e=>eventoItem(e)).join(''):'<div class="empty">Nada agendado hoy. Tus clases, turnos y servicios se agregan en <b>Semana</b>.</div>'}</div></section>
-  ${habitoChecks(hoy)}
+  const usado=t.ingresos>0?Math.min(100,t.gastado/t.ingresos*100):0;
+  const ps=S.vida.proyectos.lista.slice(0,3);
+  const h=now.getHours();const saludo=h<12?'Buenos días':h<19?'Buenas tardes':'Buenas noches';const ini=(S.email||'').trim().charAt(0).toUpperCase();
+  return `<header class="saludo"><div><h1>${saludo}</h1><div class="fechaT">${esc(dayLabel(hoy))}</div></div>${ini?`<button type="button" class="avatar" data-act="ircuentas" data-tab2="cuenta" aria-label="Mi cuenta">${esc(ini)}</button>`:''}</header>
+  ${tiraSemana(dia)}
+  <section class="heroP"><div class="heroT"><h2>${prox?(esHoy?'Lo que sigue':'Primero ese día'):(esHoy?'Sin más eventos hoy':'Día sin eventos')}</h2>
+      <p>${prox?`${esc(prox.titulo)}${prox.hora?' · '+esc(hora12(prox.hora)):''}`:'Toca el botón + para agregar un pendiente o un evento.'}</p>
+      <button type="button" class="primary" data-act="irtab" data-id="semana">Ver mi semana</button></div>
+    <svg class="campana" viewBox="0 0 100 100" aria-hidden="true"><path class="c1" d="M50 16c-15 0-23 12-23 27 0 15-5 23-12 29h70c-7-6-12-14-12-29 0-15-8-27-23-27z"/><circle class="c1" cx="50" cy="13" r="5"/><path class="c2" d="M41 78a9 9 0 0 0 18 0z"/><path class="c3" d="M10 34c-3 6-3 12 0 18M90 34c3 6 3 12 0 18"/><path class="c4" d="M37 27c-5 4-7 9-7 15"/></svg></section>
+  ${esHoy?cardAlerts():''}
+  ${total?`<section class="avance"><div class="row between"><span class="eyebrow">Avance ${esHoy?'de hoy':'del día'}</span><b>${pct}%</b></div><div class="bar grad" role="img" aria-label="${hechos} de ${total} completados"><i style="width:${pct}%"></i></div><div class="note">${hechos} de ${total} completados</div></section>`:''}
+  <section class="sec"><div class="row between"><h2>Agenda</h2>${evs.length?`<span class="note">${evs.length} evento${evs.length===1?'':'s'}</span>`:''}</div>
+    <div class="tl">${evs.map(e=>eventoItem(e)).join('')}${fin.map(finItem).join('')}${!evs.length&&!fin.length?'<div class="empty">Nada agendado este día.</div>':''}</div></section>
+  <section class="sec"><div class="row between"><h2>Pendientes</h2>${lista.length?`<span class="note">${lista.filter(x=>!x.hecha).length} por hacer</span>`:''}</div>
+    <div class="tl">${lista.length?lista.map(tareaItem).join(''):'<div class="empty">No tienes pendientes este día. Toca + para agregar uno.</div>'}</div>
+    ${sinF.length?`<details class="mas"><summary><span>Sin fecha (${sinF.length})</span></summary><div class="tl" style="padding-top:10px">${sinF.map(tareaItem).join('')}</div></details>`:''}</section>
+  ${hs.length?`<section class="sec"><div class="row between"><h2>Hábitos</h2><button type="button" class="enlace" data-act="irtab" data-id="habitos">Ver todos</button></div><div class="tl">${hs.map(x=>habitoItem(x,dia)).join('')}</div></section>`:''}
+  ${ps.length?`<section class="sec"><h2>Metas</h2><div class="card">${ps.map(p=>{const pt=tareas().filter(x=>x.proyecto===p.id);const d=pt.filter(x=>x.hecha).length;const w=pt.length?d/pt.length*100:0;return `<div class="meta-f"><div class="row between"><b>${esc(p.nombre)}</b><span class="note">${d} de ${pt.length}</span></div><div class="bar grad"><i style="width:${w}%"></i></div></div>`}).join('')}</div></section>`:''}
   <section class="card"><div class="row between"><h2>Tus cuentas</h2><button type="button" class="enlace" data-act="ircuentas" data-tab2="mes">Abrir</button></div>
     <div class="stats">
       <div class="stat"><span class="eyebrow">Gastaste hoy</span><span class="v">${$$(gastHoy)}</span></div>
-      <div class="stat"><span class="eyebrow">Disponible del mes</span><span class="v ${t.disponible<0?'neg':''}">${$$(t.disponible)}</span></div>
-      ${pago?`<div class="stat wide"><span class="eyebrow">Próximo pago de tarjeta</span><span class="v">${esc(pago.c.nombre)} · ${esc(inDays(pago.i.diasPago))}</span></div>`:''}
+      <div class="stat"><span class="eyebrow">Disponible</span><span class="v ${t.disponible<0?'neg':''}">${$$(t.disponible)}</span></div>
     </div>
-    <button type="button" data-act="ircuentas" data-tab2="hoy">Registrar un gasto</button></section>
-  ${tareaForm({fecha:hoy})}`;
+    ${t.ingresos>0?`<div><div class="row between note"><span>Gastado del mes</span><span class="num">${$$(t.gastado)} de ${$$(t.ingresos)}</span></div><div class="bar ${t.gastado>t.ingresos?'over':'grad'}" style="margin-top:6px"><i style="width:${usado}%"></i></div></div>`:''}
+    ${pago?`<div class="note">Próximo pago de tarjeta: <b>${esc(pago.c.nombre)}</b>, ${esc(inDays(pago.i.diasPago))}</div>`:''}
+  </section>`;
 }
 async function vSemana(){
   const hoy=ymd(new Date());const dow=(today0().getDay()+6)%7;
@@ -695,25 +745,16 @@ async function vSemana(){
   <div class="monthnav"><button type="button" data-act="vsem" data-d="-1" aria-label="Semana anterior">‹</button><b style="text-transform:none">${esc(rango)}</b><button type="button" data-act="vsem" data-d="1" aria-label="Semana siguiente">›</button>${S.vSem?'<button type="button" data-act="vsem" data-d="0">Hoy</button>':''}</div>
   ${S.gcalMsg?`<div class="alert"><div class="grow">${esc(S.gcalMsg)}</div><button type="button" class="ghost" data-act="vgcalok" aria-label="Cerrar aviso">✕</button></div>`:''}
   ${dias.map(f=>{const evs=eventosDe(f);const fin=finanzasDe(f);const ts=tareas().filter(x=>x.fecha===f).sort(ordenTareas);const vacio=!evs.length&&!fin.length&&!ts.length;
-    return `<section class="card dia ${f===hoy?'esHoy':''}"><div class="row between"><h2 style="text-transform:capitalize">${esc(parseDay(f).toLocaleDateString('es-EC',{weekday:'long',day:'numeric'}))}</h2>${f===hoy?'<span class="pill fijo">Hoy</span>':''}</div>
-      ${vacio?'<div class="empty" style="padding:0">Libre</div>':`<div class="list">${evs.map(e=>eventoItem(e,true)).join('')}${fin.map(finItem).join('')}${ts.map(tareaItem).join('')}</div>`}</section>`}).join('')}
-  <form class="card" id="f-vevento" autocomplete="off"><h2>Agregar a la agenda</h2>
-    <label>Qué es<input id="ve-titulo" placeholder="Ej. clase de cálculo, servicio del domingo" required></label>
-    <div class="row"><label class="grow">Área<select id="ve-area">${areaOptions(S.lastArea||'personal')}</select></label>
-    <label class="grow">Lugar (opcional)<input id="ve-lugar"></label></div>
-    <div class="row"><label class="grow">Empieza<input type="time" id="ve-hora"></label><label class="grow">Termina<input type="time" id="ve-fin"></label></div>
-    <label>Fecha<input type="date" id="ve-fecha" value="${hoy}"></label>
-    <fieldset class="dias"><legend>O repetir estos días</legend><div class="chips">${DIAS.map(([n,l,nom])=>`<label class="diachk" title="${nom}"><input type="checkbox" data-dia="${n}" aria-label="${nom}"><span>${l}</span></label>`).join('')}</div></fieldset>
-    <label>Si se repite, ¿cada cuánto?<select id="ve-cada"><option value="1">Cada semana</option><option value="2">Cada 15 días, desde la semana de la fecha elegida</option></select></label>
-    <button class="primary" type="submit">Agregar a la agenda</button></form>`;
+    return `<section class="sec dia"><div class="row between"><h2 style="text-transform:capitalize">${esc(parseDay(f).toLocaleDateString('es-EC',{weekday:'long',day:'numeric'}))}</h2>${f===hoy?'<span class="pill fijo">Hoy</span>':''}</div>
+      ${vacio?'<div class="empty" style="padding:0">Libre</div>':`<div class="tl">${evs.map(e=>eventoItem(e,true)).join('')}${fin.map(finItem).join('')}${ts.map(tareaItem).join('')}</div>`}</section>`}).join('')}`;
 }
 async function vAreas(){
   if(S.vArea&&areas().some(a=>a.id===S.vArea))return vAreaDetalle(S.vArea);
   S.vArea=null;const k=ym(new Date());await month(k);
   return header('Mis áreas','Mi vida')+`
-  <section class="card"><div class="list">${areas().map(a=>{const n=tareas().filter(t=>t.area===a.id&&!t.hecha).length;const d=dineroArea(a.id,k);
-    return `<button type="button" class="filarea" data-act="varea" data-id="${esc(a.id)}">${dot(a)}<span class="fa"><b>${esc(a.nombre)}</b><small>${n} pendiente${n===1?'':'s'}</small></span><span class="fm">${d.entra?`<span class="num pos">+${$$(d.entra)}</span>`:''}<span class="num">${d.sale?'−'+$$(d.sale):'$0,00'}</span></span><span aria-hidden="true">›</span></button>`}).join('')}</div>
-    <p class="note" style="margin:0">Los montos son los gastos e ingresos de este mes que marcaste con esa área en Cuentas.</p></section>
+  <div class="tiles">${areas().map(a=>{const n=tareas().filter(t=>t.area===a.id&&!t.hecha).length;const d=dineroArea(a.id,k);
+    return `<button type="button" class="tile" data-act="varea" data-id="${esc(a.id)}">${icoArea(a.id)}<b>${esc(a.nombre)}</b><small>${n} pendiente${n===1?'':'s'}</small><span class="tm"><span class="num">${d.sale?'−'+$$(d.sale):'$0,00'}</span>${d.entra?`<span class="num pos">+${$$(d.entra)}</span>`:''}</span></button>`}).join('')}</div>
+  <p class="note" style="margin:0">Los montos son los gastos e ingresos de este mes que marcaste con esa área en Cuentas.</p>
   <form class="card" id="f-varea" autocomplete="off"><h2>Nueva área</h2>
     <div class="row" style="align-items:flex-end"><label class="grow">Nombre<input id="va-nombre" placeholder="Ej. Familia, Salud" required></label><button type="submit">Agregar área</button></div></form>`;
 }
@@ -728,14 +769,13 @@ async function vAreaDetalle(id){
   <div class="stats"><div class="stat"><span class="eyebrow">Pendientes</span><span class="v">${pend.length}</span></div>
     <div class="stat"><span class="eyebrow">Gastado este mes</span><span class="v">${$$(d.sale)}</span></div>
     ${d.entra?`<div class="stat wide"><span class="eyebrow">Ingresos este mes</span><span class="v pos">${$$(d.entra)}</span></div>`:''}</div>
-  <section class="card"><h2>Pendientes</h2><div class="list">${pend.length?pend.map(tareaItem).join(''):`<div class="empty">Sin pendientes en ${esc(a.nombre)}.</div>`}</div>
-    ${hechas.length?`<details><summary><span>Hechas</span><span class="num">${hechas.length}</span></summary><div class="list">${hechas.slice(0,20).map(tareaItem).join('')}</div></details>`:''}</section>
-  ${tareaForm({area:id,titulo:'Agregar pendiente en '+a.nombre})}
+  <section class="sec"><h2>Pendientes</h2><div class="tl">${pend.length?pend.map(tareaItem).join(''):`<div class="empty">Sin pendientes en ${esc(a.nombre)}. Toca + para agregar uno.</div>`}</div>
+    ${hechas.length?`<details class="mas"><summary><span>Hechas (${hechas.length})</span></summary><div class="tl" style="padding-top:10px">${hechas.slice(0,20).map(tareaItem).join('')}</div></details>`:''}</section>
   <section class="card"><h2>Proyectos y metas</h2>
     ${ps.length?ps.map(p=>{const pt=tareas().filter(t=>t.proyecto===p.id);const h=pt.filter(t=>t.hecha).length;const pct=pt.length?h/pt.length*100:0;
       return `<div class="cat"><div class="row between"><div class="grow"><b>${esc(p.nombre)}</b>${p.meta?`<br><small class="muted">Meta: ${esc(shortDate(parseDay(p.meta)))}</small>`:''}</div><span class="num">${h} de ${pt.length}</span>${delBtn('delvproy',`data-id="${esc(p.id)}"`)}</div><div class="bar save"><i style="width:${pct}%"></i></div></div>`}).join(''):'<div class="empty">Crea un proyecto o una meta, y asígnale pendientes para ver cuánto avanzas.</div>'}
     <form id="f-vproy" data-area="${esc(id)}" class="row" autocomplete="off" style="align-items:flex-end"><label class="grow">Nombre<input id="vp-nombre" placeholder="Ej. Terminar el semestre" required></label><label class="grow">Fecha meta (opcional)<input type="date" id="vp-meta"></label><button type="submit">Crear</button></form></section>
-  <section class="card"><h2>Agenda</h2><div class="list">${evs.length?evs.map(e=>eventoItem(e,true)).join(''):'<div class="empty">Sin eventos próximos. Se agregan en la pestaña Semana.</div>'}</div></section>
+  <section class="sec"><h2>Agenda</h2><div class="tl">${evs.length?evs.map(e=>eventoItem(e,true)).join(''):'<div class="empty">Sin eventos próximos. Toca + para agregar uno.</div>'}</div></section>
   <section class="card"><h2>Notas</h2>
     <form id="f-vnota" data-area="${esc(id)}" class="row" autocomplete="off" style="align-items:flex-end"><label class="grow">Nota rápida<input id="vn-texto" placeholder="Una idea, un recordatorio…" required></label><button type="submit">Guardar</button></form>
     <div class="list">${notas.map(n=>`<div class="item v3"><span class="t">${esc(ddmm(ymd(new Date(n.ts))))}</span><div class="d nota">${esc(n.texto)}</div>${delBtn('delvnota',`data-id="${esc(n.id)}"`)}</div>`).join('')}</div></section>
@@ -756,7 +796,7 @@ async function vHabitos(){
   return header('Mis hábitos','Mi vida')+`
   <section class="card">${hs.length?hs.map(h=>{const r=racha(h);
     return `<div class="cat"><div class="row between"><div class="grow"><b>${esc(h.nombre)}</b><br><small class="meta">${areaTag(h.area)}<span>${r?`${r} día${r===1?'':'s'} seguido${r===1?'':'s'}`:'Empieza hoy'}</span></small></div>${delBtn('delvhab',`data-id="${esc(h.id)}"`)}</div>
-      <div class="hdias">${dias.map(f=>{const x=parseDay(f);const l=DIAS.find(d=>d[0]===x.getDay());return `<button type="button" class="hd ${f===hoy?'esHoy':''}" data-act="vhab" data-id="${esc(h.id)}" data-f="${f}" aria-pressed="${!!h.hechos[f]}" aria-label="${esc(h.nombre)}, ${esc(dayLabel(f))}"><small>${l[1]}</small>${x.getDate()}</button>`}).join('')}</div></div>`}).join(''):'<div class="empty">Elige un hábito de abajo o crea el tuyo. Cada día lo marcas aquí o desde Hoy.</div>'}</section>
+      <div class="hdias">${dias.map(f=>{const x=parseDay(f);const l=DIAS.find(d=>d[0]===x.getDay());return `<button type="button" class="hd ${f===hoy?'esHoy':''}" data-act="vhab" data-id="${esc(h.id)}" data-f="${f}" aria-pressed="${!!h.hechos[f]}" aria-label="${esc(h.nombre)}, ${esc(dayLabel(f))}"><small>${l[1]}</small>${h.hechos[f]?'✓':x.getDate()}</button>`}).join('')}</div></div>`}).join(''):'<div class="empty">Elige un hábito de abajo o crea el tuyo. Cada día lo marcas aquí o desde Hoy.</div>'}</section>
   <form class="card" id="f-vhabito" autocomplete="off"><h2>Nuevo hábito</h2>
     ${sug.length?`<div class="chips small">${sug.map(n=>`<button type="button" class="chip" data-act="vsughab" data-n="${esc(n)}">+ ${esc(n)}</button>`).join('')}</div>`:''}
     <div class="row" style="align-items:flex-end"><label class="grow">Nombre<input id="vh-nombre" placeholder="Ej. Revisar la agenda" required></label>
@@ -766,9 +806,13 @@ async function vHabitos(){
 // ---------- acciones de mi vida ----------
 function guardarZona(){try{localStorage.setItem('mc-zona',S.zona);localStorage.setItem('mc-vtab',S.vtab)}catch(_){}}
 async function vidaAct(act,b){
+  if(act==='vadd'){S.vAdd=b.dataset.id;render();return true}
+  if(act==='vfab'){S.vAdd='tarea';render();return true}
+  if(act==='vaddx'){S.vAdd=null;render();return true}
+  if(act==='vdia'){const f=b.dataset.f;S.vDia=f===ymd(new Date())?null:f;render();return true}
   if(act==='irvida'){S.zona='vida';guardarZona();await render();window.scrollTo(0,0);return true}
-  if(act==='ircuentas'){S.zona='cuentas';if(b.dataset.tab2){S.tab=b.dataset.tab2;try{localStorage.setItem('mc-tab',S.tab)}catch(_){}}guardarZona();await render();window.scrollTo(0,0);return true}
-  if(act==='irtab'){S.vtab=b.dataset.id;guardarZona();await render();window.scrollTo(0,0);return true}
+  if(act==='ircuentas'){S.vAdd=null;S.zona='cuentas';if(b.dataset.tab2){S.tab=b.dataset.tab2;try{localStorage.setItem('mc-tab',S.tab)}catch(_){}}guardarZona();await render();window.scrollTo(0,0);return true}
+  if(act==='irtab'){S.vDia=null;S.vtab=b.dataset.id;guardarZona();await render();window.scrollTo(0,0);return true}
   if(act==='vsem'){const d=+b.dataset.d;S.vSem=d===0?0:S.vSem+d;render();return true}
   if(act==='varea'){S.vArea=b.dataset.id;S.vPre=null;await render();window.scrollTo(0,0);return true}
   if(act==='vareaback'){S.vArea=null;S.vPre=null;await render();window.scrollTo(0,0);return true}
@@ -794,12 +838,12 @@ async function vidaSubmit(f,val,need){
   if(f.id==='f-vtarea'){const titulo=val('vt-titulo').trim();if(!titulo)return false;
     const mr=val('vt-monto').trim();const monto=mr===''?0:parseMoney(mr);if(isNaN(monto)||monto<0){toast('Escribe un costo válido, por ejemplo 25,50');return false}
     const pr=document.getElementById('vt-proy');const a=val('vt-area');S.lastArea=a;
-    tareas().push({id:uid(),titulo,area:a,fecha:val('vt-fecha'),prio:document.getElementById('vt-prio').checked?'alta':'normal',monto,proyecto:pr?pr.value:'',hecha:false,ts:Date.now()});saveV('tareas');toast('Pendiente agregado');return true}
+    tareas().push({id:uid(),titulo,area:a,fecha:val('vt-fecha'),prio:document.getElementById('vt-prio').checked?'alta':'normal',monto,proyecto:pr?pr.value:'',hecha:false,ts:Date.now()});saveV('tareas');toast('Pendiente agregado');S.vAdd=null;return true}
   if(f.id==='f-vevento'){const titulo=val('ve-titulo').trim();if(!titulo)return false;
     const dias=[...f.querySelectorAll('[data-dia]:checked')].map(x=>+x.dataset.dia);const fecha=val('ve-fecha');
     if(!dias.length&&!fecha){toast('Elige una fecha o los días en que se repite');return false}
     const cada=dias.length?+val('ve-cada'):1;if(cada>1&&!fecha){toast('Elige la fecha de la semana en que empieza');return false}
-    const a=val('ve-area');S.lastArea=a;const ev={id:uid(),titulo,area:a,lugar:val('ve-lugar').trim(),hora:val('ve-hora'),fin:val('ve-fin'),fecha:dias.length?'':fecha,dias,...(cada>1?{cada,desde:shiftDay(fecha,-((parseDay(fecha).getDay()+6)%7))}:{})};S.vida.eventos.lista.push(ev);saveV('eventos');toast(dias.length?'Agregado a tu horario':'Agregado a la agenda');
+    const a=val('ve-area');S.lastArea=a;const ev={id:uid(),titulo,area:a,lugar:val('ve-lugar').trim(),hora:val('ve-hora'),fin:val('ve-fin'),fecha:dias.length?'':fecha,dias,...(cada>1?{cada,desde:shiftDay(fecha,-((parseDay(fecha).getDay()+6)%7))}:{})};S.vida.eventos.lista.push(ev);saveV('eventos');toast(dias.length?'Agregado a tu horario':'Agregado a la agenda');S.vAdd=null;
     return true}
   if(f.id==='f-varea'){const nombre=val('va-nombre').trim();if(!nombre)return false;S.vida.areas.lista.push({id:'a'+uid(),nombre,color:'a6'});saveV('areas');toast('Área agregada');return true}
   if(f.id==='f-vproy'){const nombre=val('vp-nombre').trim();if(!nombre)return false;S.vida.proyectos.lista.push({id:uid(),nombre,area:f.dataset.area,meta:val('vp-meta')});saveV('proyectos');toast('Proyecto creado');return true}
@@ -827,7 +871,8 @@ async function render(){
   if(!S.ready)return;
   const v=enVida?{hoy:vHoy,semana:vSemana,areas:vAreas,habitos:vHabitos}[S.vtab]:{hoy:viewHoy,mes:viewMes,reparto:viewReparto,plan:viewPlan,deuda:viewDeuda,cuenta:viewCuenta}[S.tab];
   let html=await v();if(seq!==renderSeq)return;
-  if(!enVida)html='<button type="button" class="ghost volver" data-act="irvida">‹ Volver a Mi vida</button>'+html;
+  if(enVida){html+='<button type="button" class="fab" data-act="vfab" aria-label="Agregar">+</button>'+hojaAgregar()}
+  else html='<button type="button" class="ghost volver" data-act="irvida">‹ Volver a Mi vida</button>'+html;
   document.getElementById('app').innerHTML=html;
 }
 
@@ -835,7 +880,7 @@ async function render(){
 document.addEventListener('click',async e=>{
   const vb=e.target.closest('[data-vtab]');
   if(vb){const id=vb.dataset.vtab;S.editG=null;
-    if(id==='cuentas')S.zona='cuentas';else{if(S.vtab===id&&id==='areas')S.vArea=null;S.vtab=id;S.vPre=null}
+    S.vAdd=null;if(id==='cuentas')S.zona='cuentas';else{if(S.vtab===id&&id==='areas')S.vArea=null;S.vtab=id;S.vPre=null}
     guardarZona();render();window.scrollTo(0,0);return}
   const tb=e.target.closest('[data-tab]');
   if(tb){S.tab=tb.dataset.tab;try{localStorage.setItem('mc-tab',S.tab)}catch(_){}S.editCard=null;S.addCard=false;S.editG=null;render();window.scrollTo(0,0);return}
@@ -954,7 +999,7 @@ document.addEventListener('submit',async e=>{
 });
 
 // ---------- inicio ----------
-const APP_VERSION='1.1.0';
+const APP_VERSION='1.2.0';
 function authMsg(e){const c=e&&e.code||'';
   if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return 'Correo o contraseña incorrectos';
   if(c.includes('email-already-in-use'))return 'Ese correo ya tiene cuenta. Toca "Ya tengo cuenta".';
@@ -975,7 +1020,7 @@ async function loadAll(){
   S.ahorro=await loadDoc('ahorro',{meta:0,movs:[]});S.ahorro.movs=S.ahorro.movs||[];
   S.plan=await loadDoc('plan',DEFAULT_PLAN);S.plan.mac=S.plan.mac||{meta:0,pagos:[]};S.plan.meses=S.plan.meses||[];
   S.cobros=await loadDoc('cobros',DEFAULT_COBROS);S.cobros.lista=S.cobros.lista||[];
-  S.vArea=null;S.vPre=null;S.gcalMsg='';await loadVida();
+  S.vArea=null;S.vPre=null;S.vAdd=null;S.vDia=null;S.gcalMsg='';await loadVida();
   const now=new Date();let start=new Date(now.getFullYear(),now.getMonth()-2,1);
   Object.values(S.deuda.saldos).forEach(s=>{if(s&&s.ts){const t=new Date(s.ts);const f=new Date(t.getFullYear(),t.getMonth(),1);if(f<start)start=f}});
   const lim=new Date(now.getFullYear(),now.getMonth()-24,1);if(start<lim)start=lim;
