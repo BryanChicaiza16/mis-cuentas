@@ -17,16 +17,19 @@ const DEFAULT_SETTINGS={cats:[
   {id:'ahorro',nombre:'Ahorro',tipo:'ahorro'},
   {id:'otros',nombre:'Otros',tipo:'variable'}
 ],presupuesto:{},tarjetas:null};
-const DEFAULT_CARDS=[{id:'visa',nombre:'Visa',corte:15,pago:31},{id:'discover',nombre:'Discover',corte:15,pago:1}];
+const DEFAULT_CARDS=[];
 const PROTECTED=['tarjeta','ahorro','otros'];
 const DEFAULT_PLAN={v:2,mac:{meta:0,pagos:[]},meses:[]};
 const DEFAULT_COBROS={lista:[]};
 const CASH={efectivo:'Efectivo',debito:'Débito / transferencia'};
 
 const S={db:null,uid:null,mode:'local',ready:false,settings:null,deuda:null,ahorro:null,months:{},
-  tab:'hoy',viewMonth:ym(new Date()),selCat:'comida',selMet:'efectivo',editCard:null,addCard:false,editG:null};
+  tab:'hoy',viewMonth:ym(new Date()),selCat:'comida',selMet:'efectivo',editCard:null,addCard:false,editG:null,
+  zona:'vida',vtab:'hoy',vSem:0,vArea:null,vPre:null,lastArea:null,vida:null,gcalMsg:''};
 try{const t=localStorage.getItem('mc-tab'); if(t&&TABS.some(x=>x.id===t)) S.tab=t;
-  const m=localStorage.getItem('mc-met'); if(m) S.selMet=m;}catch(e){}
+  const m=localStorage.getItem('mc-met'); if(m) S.selMet=m;
+  if(localStorage.getItem('mc-zona')==='cuentas') S.zona='cuentas';
+  const vt=localStorage.getItem('mc-vtab'); if(['hoy','semana','areas','habitos'].includes(vt)) S.vtab=vt;}catch(e){}
 
 // ---------- utilidades ----------
 function pad(n){return String(n).padStart(2,'0')}
@@ -151,6 +154,7 @@ function ahorroSaldo(){return r2(S.ahorro.movs.reduce((a,x)=>a+x.monto,0))}
 async function addGasto(monto,catId,nota,opt){
   opt=opt||{};const d=new Date();const fecha=opt.fecha||ymd(d);const k=fecha.slice(0,7);const m=await month(k);
   const g={id:uid(),monto,cat:catId,nota:nota||'',fecha,hora:fecha===ymd(d)?hm(d):'',ts:Date.now(),metodo:opt.metodo||'efectivo'};
+  if(opt.area)g.area=opt.area;
   const tipo=cat(catId).tipo;
   if(tipo==='deuda'&&opt.tarjetaId){const a={id:uid(),monto,fecha:g.fecha,ts:g.ts,origen:'mes',tarjetaId:opt.tarjetaId,gastoId:g.id};S.deuda.abonos.push(a);g.abonoId=a.id;g.tarjetaId=opt.tarjetaId;saveDeuda()}
   if(tipo==='ahorro'){const mv={id:uid(),monto,fecha:g.fecha,nota:nota||'Aporte del mes',gastoId:g.id};S.ahorro.movs.push(mv);g.movId=mv.id;saveAhorro()}
@@ -161,6 +165,7 @@ async function delGasto(k,id){
   m.gastos=m.gastos.filter(x=>x.id!==id);saveMonth(k);
   if(g.abonoId){S.deuda.abonos=S.deuda.abonos.filter(a=>a.id!==g.abonoId);saveDeuda()}
   if(g.movId){S.ahorro.movs=S.ahorro.movs.filter(a=>a.id!==g.movId);saveAhorro()}
+  const tv=tareas().find(t=>t.gastoId===id);if(tv){delete tv.gastoId;saveV('tareas')}
 }
 
 // ---------- piezas de vista ----------
@@ -203,6 +208,7 @@ function editForm(g){
     <div class="row">${abono?'':`<label class="grow">Categoría<select id="e-cat">${S.settings.cats.filter(x=>x.id!=='tarjeta').map(x=>`<option value="${esc(x.id)}" ${x.id===g.cat?'selected':''}>${esc(x.nombre)}</option>`).join('')}</select></label>`}
     <label class="grow">Cómo pagaste<select id="e-met">${mets.map(x=>`<option value="${esc(x)}" ${x===gMet(g)?'selected':''}>${isCard(x)?'Tarjeta de crédito · ':''}${esc(metName(x))}</option>`).join('')}</select></label></div>
     <label>Nota<input id="e-nota" value="${esc(g.nota)}" placeholder="Ej. almuerzo, bus, recarga"></label>
+    ${abono?'':`<label>Área (opcional)<select id="e-area">${areaOptions(g.area||'','Sin área')}</select></label>`}
     <div class="row"><button class="primary" type="submit">Guardar cambios</button><button type="button" data-act="canceledit">Cancelar</button><span class="grow"></span>
       <button type="button" class="danger" data-act="delgasto" data-k="${g.fecha.slice(0,7)}" data-id="${g.id}">Borrar ${abono?'abono':'gasto'}</button></div>
   </form>`;
@@ -245,6 +251,7 @@ async function viewHoy(){
     <div class="eyebrow">2 · ¿Cómo pagaste?</div>
     <div id="g-met" style="display:flex;flex-direction:column;gap:10px">${metChips()}</div>
     <label>Nota (opcional)<input id="g-nota" placeholder="Ej. almuerzo, bus, recarga, nombre del local"></label>
+    <label>Área de tu vida (opcional)<select id="g-area">${areaOptions('','Sin área')}</select></label>
     <button class="primary block" type="submit">Registrar gasto</button>
     <p class="note" style="margin:0">¿Vas a pagar o abonar a tu tarjeta? Eso se registra en la pestaña <b>Tarjetas</b>.</p>
   </form>
@@ -293,6 +300,7 @@ async function viewMes(){
       <label class="grow">De dónde viene<input id="i-desc" placeholder="Sueldo, trabajo extra, venta…"></label>
     </div>
     <label>¿Cómo lo recibiste?<select id="i-met"><option value="efectivo">Efectivo</option><option value="debito">Transferencia o depósito a mi cuenta</option></select></label>
+    <label>Área de tu vida (opcional)<select id="i-area">${areaOptions('','Sin área')}</select></label>
     <button class="primary" type="submit">Agregar ingreso</button>
     <div class="list">${ing.length?ing.map(i=>`<div class="item"><span class="t">${i.fecha.slice(8)}</span><div class="d"><b>${esc(i.desc||'Ingreso')}</b><small>${i.metodo==='debito'?'Transferencia o depósito':'Efectivo'}</small></div><span class="m" style="color:var(--save)">+${$$(i.monto)}</span>${delBtn('delingreso',`data-k="${k}" data-id="${i.id}"`)}</div>`).join(''):'<div class="empty">Registra lo que recibes este mes: sueldo, trabajos extra o cualquier entrada de dinero.</div>'}</div>
   </form>
@@ -427,7 +435,7 @@ async function viewDeuda(){
       meses?`<div class="note">Abonando ${$$(plan)} al mes (tu reparto) y sin nuevas compras con tarjeta, terminas en unos ${meses} mes${meses===1?'':'es'}, hacia ${esc(fin)}. No incluye intereses.</div>`:
       '<div class="note">Asigna un monto mensual a Pago de tarjetas en Reparto para estimar cuándo terminas de pagar.</div>'}</section>`:'')+
   cards().map(cardView).join('')+
-  (S.addCard?cardForm(null):`<button type="button" data-act="addcard">+ Agregar otra tarjeta</button>`)+`
+  (S.addCard?cardForm(null):`<button type="button" data-act="addcard">+ Agregar ${cards().length?'otra ':''}tarjeta</button>`)+`
   <section class="card"><h2>Ahorro</h2>
     <div class="hero"><span class="eyebrow">Tienes guardado</span><span class="big" style="color:var(--save)">${$$(saldoA)}</span></div>
     ${meta?`<div class="bar save"><i style="width:${Math.min(100,Math.max(0,saldoA/meta*100))}%"></i></div><div class="row between note"><span>Meta <span class="num">${$$(meta)}</span></span><span>${saldoA>=meta?'Meta cumplida':'Faltan <span class="num">'+$$(meta-saldoA)+'</span>'}</span></div>`:''}
@@ -444,9 +452,9 @@ async function viewDeuda(){
 // ---------- cuenta, login y respaldo ----------
 function viewLogin(){
   const reg=S.loginMode==='registro';
-  return `<div class="top"><div><div class="eyebrow">Mis cuentas</div><h1>${reg?'Crea tu cuenta':'Inicia sesión'}</h1></div></div>
+  return `<div class="top"><div><div class="eyebrow">Mi vida y cuentas</div><h1>${reg?'Crea tu cuenta':'Inicia sesión'}</h1></div></div>
   <form class="card" id="f-login" autocomplete="on">
-    <p class="note" style="margin:0">${reg?'Con tu cuenta, tus datos se guardan en la nube y los ves igual en el celular y en la compu.':'Entra con el correo y la contraseña de tu cuenta de Mis Cuentas.'}</p>
+    <p class="note" style="margin:0">${reg?'Con tu cuenta, tus datos se guardan en la nube y los ves igual en el celular y en la compu.':'Entra con el correo y la contraseña de tu cuenta.'}</p>
     <label>Correo<input id="l-email" type="email" autocomplete="email" required></label>
     <label>Contraseña<input id="l-pass" type="password" autocomplete="${reg?'new-password':'current-password'}" minlength="6" required></label>
     <button class="primary block" type="submit">${reg?'Crear cuenta':'Entrar'}</button>
@@ -465,9 +473,9 @@ async function viewCuenta(){
     <p class="note" style="margin:0">Descarga un archivo con todos tus datos o carga uno anterior. Sirve para pasar tus datos desde la versión de Claude o guardar una copia.</p>
     <div class="row"><button type="button" class="primary" data-act="exportar">Descargar respaldo</button>
     <label class="filebtn">Cargar respaldo<input type="file" id="imp-file" accept="application/json,.json" hidden></label></div>
-    <p class="note" style="margin:0">Al cargar un respaldo se reemplazan los datos que tengas ahora.</p>
+    <p class="note" style="margin:0">Al cargar un respaldo se reemplaza lo que venga en el archivo.</p>
   </section>
-  <p class="note">Mis Cuentas · versión ${APP_VERSION}</p>`;
+  <p class="note">Mi Vida y Cuentas · versión ${APP_VERSION}</p>`;
 }
 async function exportar(){
   const docs=await Store.all();
@@ -479,10 +487,10 @@ async function exportar(){
 async function importar(file){
   let data;try{data=JSON.parse(await file.text())}catch(e){toast('Ese archivo no es un respaldo válido');return}
   const docs=data&&data.docs;
-  if(!docs||typeof docs!=='object'||!docs.settings){toast('El archivo no tiene datos de Mis Cuentas');return}
-  const keys=Object.keys(docs).filter(k=>/^(settings|deuda|ahorro|plan|cobros|m\d{4}-\d{2})$/.test(k));
+  if(!docs||typeof docs!=='object'||!Object.keys(docs).some(k=>k==='settings'||/^v-[a-z]+$/.test(k))){toast('El archivo no tiene datos de Mi Vida y Cuentas');return}
+  const keys=Object.keys(docs).filter(k=>/^(settings|deuda|ahorro|plan|cobros|m\d{4}-\d{2}|v-[a-z]+)$/.test(k));
   keys.forEach(k=>Store.set(k,docs[k]));
-  toast(`Respaldo cargado: ${keys.filter(k=>k[0]==='m').length} mes(es) de datos`);
+  toast(docs.settings?`Respaldo cargado: ${keys.filter(k=>/^m\d/.test(k)).length} mes(es) de datos`:'Agenda cargada. Tus gastos no cambiaron.');
   await loadAll();render();
 }
 document.addEventListener('change',async e=>{
@@ -513,8 +521,9 @@ async function viewPlan(){
   const pag=r2(mac.pagos.filter(p=>p.hecho).reduce((a,p)=>a+p.monto,0));const meta=mac.meta||0;
   const prog=r2(mac.pagos.reduce((a,p)=>a+p.monto,0));
   const cb=S.cobros.lista;const pend=r2(cb.filter(c=>!c.cobrado).reduce((a,c)=>a+c.monto,0));
-  return header('Mi plan','Noviembre a febrero')+
-  `<div class="alert soft"><div><b>La regla hasta febrero:</b> cero compras nuevas con tarjeta. Todo lo que pases ahora se suma a los meses que vienen.</div></div>
+  const hayPlan=meta>0||P.meses.length>0;
+  return header('Mi plan',hayPlan?'Noviembre a febrero':'Mes a mes')+
+  `${hayPlan?'<div class="alert soft"><div><b>La regla hasta febrero:</b> cero compras nuevas con tarjeta. Todo lo que pases ahora se suma a los meses que vienen.</div></div>':'<section class="card"><h2>Tu plan</h2><div class="empty">Todavía no tienes un plan mes a mes. Por ahora, aquí abajo puedes anotar quién te debe dinero.</div></section>'}
   ${meta>0?`<section class="card">
     <div class="row between"><h2>${esc(mac.titulo||'MacBook Air M1')}</h2><span class="num">${$$(pag)} de ${$$(mac.meta)}</span></div>
     <div class="bar save"><i style="width:${Math.min(100,pag/mac.meta*100)}%"></i></div>
@@ -542,24 +551,296 @@ async function viewPlan(){
   <p class="note" style="margin:0">Los montos son editables: cuando sepas la cifra real (por ejemplo, el corte de enero), cámbiala y el saldo del mes se recalcula.</p>`;
 }
 
+// ---------- mi vida ----------
+const VTABS=[
+  {id:'hoy',label:'Hoy',icon:'<path d="M4 12l5 5L20 6"/>'},
+  {id:'semana',label:'Semana',icon:'<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'},
+  {id:'areas',label:'Áreas',icon:'<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>'},
+  {id:'habitos',label:'Hábitos',icon:'<path d="M20 11a8 8 0 1 0-2.5 5.8"/><path d="M20 5v6h-6"/>'},
+  {id:'cuentas',label:'Cuentas',icon:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h5M3 10h13"/>'}
+];
+const DEFAULT_AREAS={lista:[
+  {id:'personal',nombre:'Personal',color:'a1'},{id:'trabajo',nombre:'Trabajo',color:'a2'},
+  {id:'universidad',nombre:'Universidad',color:'a3'},{id:'iglesia',nombre:'Iglesia',color:'a4'},
+  {id:'emprendimientos',nombre:'Emprendimientos',color:'a5'}]};
+const AREAS_FIJAS=DEFAULT_AREAS.lista.map(a=>a.id);
+const DIAS=[[1,'L','lunes'],[2,'M','martes'],[3,'X','miércoles'],[4,'J','jueves'],[5,'V','viernes'],[6,'S','sábado'],[0,'D','domingo']];
+const HAB_SUG=['Orar','Leer la Biblia','Ejercicio','Estudiar','Dormir 7 horas','Tomar agua'];
+
+async function loadVida(){
+  S.vida={};S.vidaFallo=false;
+  for(const k of ['areas','tareas','eventos','proyectos','habitos','notas']){
+    try{const d=await Store.get('v-'+k);S.vida[k]=d?clone(d):clone(k==='areas'?DEFAULT_AREAS:{lista:[]})}
+    catch(e){S.vidaFallo=true;S.vida[k]=clone(k==='areas'?DEFAULT_AREAS:{lista:[]})}
+  }
+  Object.values(S.vida).forEach(d=>{d.lista=d.lista||[]});
+}
+function saveV(k){if(S.vidaFallo){toast('No pude leer tu agenda. Vuelve a abrir la app con internet para no perder nada.');return}saveDoc('v-'+k,S.vida[k])}
+function areas(){return S.vida.areas.lista}
+function area(id){return areas().find(a=>a.id===id)||{id:'',nombre:'Sin área',color:'a6'}}
+function tareas(){return S.vida.tareas.lista}
+function dot(a){return `<i class="dot" style="background:var(--${esc(a.color)})" aria-hidden="true"></i>`}
+function areaTag(id){const a=area(id);return `<span class="atag">${dot(a)}${esc(a.nombre)}</span>`}
+function areaOptions(sel,vacio){return (vacio?`<option value="">${esc(vacio)}</option>`:'')+areas().map(a=>`<option value="${esc(a.id)}" ${a.id===sel?'selected':''}>${esc(a.nombre)}</option>`).join('')}
+function shiftDay(f,n){const d=parseDay(f);d.setDate(d.getDate()+n);return ymd(d)}
+function fechaTxt(f){const n=diffDays(parseDay(f),today0());return n===0?'hoy':n===1?'mañana':n<0?`venció ${inDays(n)}`:shortDate(parseDay(f))}
+function ordenTareas(a,b){return (b.prio==='alta')-(a.prio==='alta')||(a.fecha||'9').localeCompare(b.fecha||'9')}
+function eventosDe(f){
+  return S.vida.eventos.lista.filter(e=>ocurre(e,f)).sort((a,b)=>(a.hora||'').localeCompare(b.hora||''))}
+function finanzasDe(f){const d=parseDay(f);const out=[];
+  cards().forEach(c=>{
+    if(ymd(dayIn(d.getFullYear(),d.getMonth(),c.pago))===f)out.push({t:'Pago de '+c.nombre,alerta:true});
+    if(ymd(dayIn(d.getFullYear(),d.getMonth(),c.corte))===f)out.push({t:'Corte de '+c.nombre});
+  });
+  progs().filter(p=>p.fecha===f).forEach(p=>out.push({t:'Pago programado a '+(card(p.tarjetaId)?.nombre||'tarjeta'),monto:p.monto,alerta:true}));
+  return out;
+}
+function dineroArea(id,k){const m=S.months[k]||{gastos:[],ingresos:[]};
+  return {sale:r2(m.gastos.filter(g=>g.area===id&&cat(g.cat).tipo!=='ahorro').reduce((a,g)=>a+g.monto,0)),
+    entra:r2(m.ingresos.filter(i=>i.area===id).reduce((a,i)=>a+i.monto,0))};
+}
+function racha(h){let f=ymd(new Date());if(!h.hechos[f])f=shiftDay(f,-1);let n=0;while(h.hechos[f]){n++;f=shiftDay(f,-1)}return n}
+
+// ---------- google calendar ----------
+function ocurre(e,f){const dow=parseDay(f).getDay();
+  return (e.dias&&e.dias.length)?(e.dias.includes(dow)&&(!e.cada||(f>=e.desde&&Math.floor(diffDays(parseDay(f),parseDay(e.desde))/7)%e.cada===0))):e.fecha===f}
+function gcalLink(e){
+  const now=new Date();const hoy=ymd(now);let f=e.fecha;let rec='';
+  if(e.dias&&e.dias.length){f=null;
+    for(let i=0;i<=28&&!f;i++){const d=shiftDay(hoy,i);if(ocurre(e,d)&&!(i===0&&e.hora<=hm(now)))f=d}
+    const by=['SU','MO','TU','WE','TH','FR','SA'];
+    rec=`RRULE:FREQ=WEEKLY;${e.cada>1?'INTERVAL='+e.cada+';':''}WKST=MO;BYDAY=${e.dias.map(n=>by[n]).join(',')}`}
+  let fin=e.fin;if(!fin||fin<=e.hora){const m=Math.min(+e.hora.slice(0,2)*60+ +e.hora.slice(3)+60,1439);fin=pad(Math.floor(m/60))+':'+pad(m%60)}
+  const t=x=>x.replace(/[-:]/g,'');
+  const u=new URLSearchParams({action:'TEMPLATE',text:e.titulo,dates:t(`${f}T${e.hora}:00`)+'/'+t(`${f}T${fin}:00`),ctz:Intl.DateTimeFormat().resolvedOptions().timeZone||'America/Guayaquil'});
+  if(e.lugar)u.set('location',e.lugar);if(rec)u.set('recur',rec);
+  return 'https://calendar.google.com/calendar/render?'+u;
+}
+function gcalEstado(e,acciones){
+  if(e.gcalId)return '<span class="pill fijo">En Google Calendar</span>';
+  if(acciones&&e.hora)return `<a class="enlace" target="_blank" rel="noopener" href="${esc(gcalLink(e))}">Agregar a Google Calendar</a>`;
+  return '';
+}
+
+// ---------- piezas de mi vida ----------
+function tareaItem(t){
+  const p=t.proyecto&&S.vida.proyectos.lista.find(x=>x.id===t.proyecto);
+  const vencida=!t.hecha&&t.fecha&&t.fecha<ymd(new Date());
+  return `<div class="item vt"><button type="button" class="tick" data-act="vtarea" data-id="${esc(t.id)}" aria-pressed="${!!t.hecha}" aria-label="${t.hecha?'Marcar como pendiente':'Marcar como hecha'}: ${esc(t.titulo)}">${t.hecha?'✓':''}</button>
+    <div class="d"><b class="${t.hecha?'tachado':''}">${t.prio==='alta'&&!t.hecha?'<span class="pill deuda">Importante</span> ':''}${esc(t.titulo)}</b>
+      <small class="meta">${areaTag(t.area)}${p?`<span>${esc(p.nombre)}</span>`:''}${t.fecha?`<span class="${vencida?'venc':''}">${esc(fechaTxt(t.fecha))}</span>`:''}${t.monto?`<span class="num">${$$(t.monto)}</span>`:''}</small>
+      ${t.monto?(t.gastoId?'<span class="pill ahorro">Registrado en Cuentas</span>':`<button type="button" class="enlace" data-act="vpasar" data-id="${esc(t.id)}">Registrar ${$$(t.monto)} en Cuentas</button>`):''}</div>
+    ${delBtn('delvtarea',`data-id="${esc(t.id)}"`)}</div>`;
+}
+function eventoItem(e,conBorrar){
+  const rep=e.dias&&e.dias.length;
+  return `<div class="item v3"><span class="t">${esc(e.hora||'—')}${e.fin?'<br>'+esc(e.fin):''}</span>
+    <div class="d"><b>${esc(e.titulo)}</b><small class="meta">${areaTag(e.area)}${e.lugar?`<span>${esc(e.lugar)}</span>`:''}${rep?`<span>${e.cada===2?'Cada 15 días':e.dias.length===7?'Todos los días':'Cada semana'}</span>`:''}</small>${gcalEstado(e,conBorrar)}</div>
+    ${conBorrar?delBtn('delvevento',`data-id="${esc(e.id)}"`):'<span></span>'}</div>`;
+}
+function finItem(x){
+  return `<div class="item v3"><span class="t">$</span><div class="d"><b>${esc(x.t)}</b><small class="meta"><span class="pill ${x.alerta?'deuda':'fijo'}">Cuentas</span>${x.monto?`<span class="num">${$$(x.monto)}</span>`:''}</small></div><button type="button" class="ghost" data-act="ircuentas" data-tab2="deuda" aria-label="Ver tarjetas">›</button></div>`;
+}
+function tareaForm(o){
+  o=o||{};const ps=S.vida.proyectos.lista.filter(p=>!o.area||p.area===o.area);
+  return `<form class="card" id="f-vtarea" autocomplete="off"><h2>${esc(o.titulo||'Agregar pendiente')}</h2>
+    <label>¿Qué hay que hacer?<input id="vt-titulo" placeholder="Ej. entregar el deber de cálculo" required></label>
+    <div class="row">${o.area?`<input type="hidden" id="vt-area" value="${esc(o.area)}">`:`<label class="grow">Área<select id="vt-area">${areaOptions(S.lastArea||'personal')}</select></label>`}
+    <label class="grow">Fecha (opcional)<input type="date" id="vt-fecha" value="${esc(o.fecha||'')}"></label></div>
+    <details class="mas"><summary><span>Más opciones</span></summary><div class="masin">
+      <label class="check"><input type="checkbox" id="vt-prio"> Es importante</label>
+      <label>¿Cuesta dinero? (opcional)<input id="vt-monto" inputmode="decimal" placeholder="0,00"></label>
+      ${ps.length?`<label>Proyecto<select id="vt-proy"><option value="">Sin proyecto</option>${ps.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('')}</select></label>`:''}
+    </div></details>
+    <button class="primary" type="submit">Agregar pendiente</button></form>`;
+}
+function habitoChecks(hoy){
+  const hs=S.vida.habitos.lista;if(!hs.length)return '';
+  return `<section class="card"><div class="row between"><h2>Hábitos de hoy</h2><span class="num">${hs.filter(h=>h.hechos[hoy]).length} de ${hs.length}</span></div>
+    <div class="chips">${hs.map(h=>`<button type="button" class="chip" data-act="vhab" data-id="${esc(h.id)}" data-f="${hoy}" aria-pressed="${!!h.hechos[hoy]}">${h.hechos[hoy]?'✓ ':''}${esc(h.nombre)}</button>`).join('')}</div></section>`;
+}
+
+// ---------- vistas de mi vida ----------
+async function vHoy(){
+  const now=new Date();const k=ym(now);const hoy=ymd(now);const m=await month(k);const t=monthTotals(m);
+  const gastHoy=r2(m.gastos.filter(g=>g.fecha===hoy&&cat(g.cat).tipo!=='ahorro').reduce((a,g)=>a+g.monto,0));
+  const pend=tareas().filter(x=>!x.hecha);
+  const hoyT=pend.filter(x=>x.fecha&&x.fecha<=hoy).sort(ordenTareas);
+  const sinF=pend.filter(x=>!x.fecha).sort(ordenTareas);
+  const hasta=shiftDay(hoy,7);const prox=pend.filter(x=>x.fecha&&x.fecha>hoy&&x.fecha<=hasta).length;
+  const evs=eventosDe(hoy);
+  const pago=cards().map(c=>({c,i:cycleInfo(c)})).filter(x=>x.i.diasPago>=0).sort((a,b)=>a.i.diasPago-b.i.diasPago)[0];
+  return header(dayLabel(hoy),'Mi vida')+cardAlerts()+`
+  <section class="card"><div class="row between"><h2>Pendientes de hoy</h2>${prox?`<button type="button" class="enlace" data-act="irtab" data-id="semana">${prox} más esta semana</button>`:''}</div>
+    <div class="list">${hoyT.length?hoyT.map(tareaItem).join(''):'<div class="empty">No tienes pendientes para hoy. Agrega abajo lo que quieras terminar y elige a qué área pertenece.</div>'}</div>
+    ${sinF.length?`<details><summary><span>Sin fecha</span><span class="num">${sinF.length}</span></summary><div class="list">${sinF.map(tareaItem).join('')}</div></details>`:''}
+  </section>
+  <section class="card"><h2>Agenda de hoy</h2>
+    <div class="list">${evs.length?evs.map(e=>eventoItem(e)).join(''):'<div class="empty">Nada agendado hoy. Tus clases, turnos y servicios se agregan en <b>Semana</b>.</div>'}</div></section>
+  ${habitoChecks(hoy)}
+  <section class="card"><div class="row between"><h2>Tus cuentas</h2><button type="button" class="enlace" data-act="ircuentas" data-tab2="mes">Abrir</button></div>
+    <div class="stats">
+      <div class="stat"><span class="eyebrow">Gastaste hoy</span><span class="v">${$$(gastHoy)}</span></div>
+      <div class="stat"><span class="eyebrow">Disponible del mes</span><span class="v ${t.disponible<0?'neg':''}">${$$(t.disponible)}</span></div>
+      ${pago?`<div class="stat wide"><span class="eyebrow">Próximo pago de tarjeta</span><span class="v">${esc(pago.c.nombre)} · ${esc(inDays(pago.i.diasPago))}</span></div>`:''}
+    </div>
+    <button type="button" data-act="ircuentas" data-tab2="hoy">Registrar un gasto</button></section>
+  ${tareaForm({fecha:hoy})}`;
+}
+async function vSemana(){
+  const hoy=ymd(new Date());const dow=(today0().getDay()+6)%7;
+  const lunes=shiftDay(hoy,-dow+7*S.vSem);const dias=[0,1,2,3,4,5,6].map(i=>shiftDay(lunes,i));
+  const rango=`${parseDay(dias[0]).getDate()} de ${parseDay(dias[0]).toLocaleDateString('es-EC',{month:'short'})} al ${parseDay(dias[6]).getDate()} de ${parseDay(dias[6]).toLocaleDateString('es-EC',{month:'short'})}`;
+  return header('Mi semana','Mi vida')+`
+  <div class="monthnav"><button type="button" data-act="vsem" data-d="-1" aria-label="Semana anterior">‹</button><b style="text-transform:none">${esc(rango)}</b><button type="button" data-act="vsem" data-d="1" aria-label="Semana siguiente">›</button>${S.vSem?'<button type="button" data-act="vsem" data-d="0">Hoy</button>':''}</div>
+  ${S.gcalMsg?`<div class="alert"><div class="grow">${esc(S.gcalMsg)}</div><button type="button" class="ghost" data-act="vgcalok" aria-label="Cerrar aviso">✕</button></div>`:''}
+  ${dias.map(f=>{const evs=eventosDe(f);const fin=finanzasDe(f);const ts=tareas().filter(x=>x.fecha===f).sort(ordenTareas);const vacio=!evs.length&&!fin.length&&!ts.length;
+    return `<section class="card dia ${f===hoy?'esHoy':''}"><div class="row between"><h2 style="text-transform:capitalize">${esc(parseDay(f).toLocaleDateString('es-EC',{weekday:'long',day:'numeric'}))}</h2>${f===hoy?'<span class="pill fijo">Hoy</span>':''}</div>
+      ${vacio?'<div class="empty" style="padding:0">Libre</div>':`<div class="list">${evs.map(e=>eventoItem(e,true)).join('')}${fin.map(finItem).join('')}${ts.map(tareaItem).join('')}</div>`}</section>`}).join('')}
+  <form class="card" id="f-vevento" autocomplete="off"><h2>Agregar a la agenda</h2>
+    <label>Qué es<input id="ve-titulo" placeholder="Ej. clase de cálculo, servicio del domingo" required></label>
+    <div class="row"><label class="grow">Área<select id="ve-area">${areaOptions(S.lastArea||'personal')}</select></label>
+    <label class="grow">Lugar (opcional)<input id="ve-lugar"></label></div>
+    <div class="row"><label class="grow">Empieza<input type="time" id="ve-hora"></label><label class="grow">Termina<input type="time" id="ve-fin"></label></div>
+    <label>Fecha<input type="date" id="ve-fecha" value="${hoy}"></label>
+    <fieldset class="dias"><legend>O repetir estos días</legend><div class="chips">${DIAS.map(([n,l,nom])=>`<label class="diachk" title="${nom}"><input type="checkbox" data-dia="${n}" aria-label="${nom}"><span>${l}</span></label>`).join('')}</div></fieldset>
+    <label>Si se repite, ¿cada cuánto?<select id="ve-cada"><option value="1">Cada semana</option><option value="2">Cada 15 días, desde la semana de la fecha elegida</option></select></label>
+    <button class="primary" type="submit">Agregar a la agenda</button></form>`;
+}
+async function vAreas(){
+  if(S.vArea&&areas().some(a=>a.id===S.vArea))return vAreaDetalle(S.vArea);
+  S.vArea=null;const k=ym(new Date());await month(k);
+  return header('Mis áreas','Mi vida')+`
+  <section class="card"><div class="list">${areas().map(a=>{const n=tareas().filter(t=>t.area===a.id&&!t.hecha).length;const d=dineroArea(a.id,k);
+    return `<button type="button" class="filarea" data-act="varea" data-id="${esc(a.id)}">${dot(a)}<span class="fa"><b>${esc(a.nombre)}</b><small>${n} pendiente${n===1?'':'s'}</small></span><span class="fm">${d.entra?`<span class="num pos">+${$$(d.entra)}</span>`:''}<span class="num">${d.sale?'−'+$$(d.sale):'$0,00'}</span></span><span aria-hidden="true">›</span></button>`}).join('')}</div>
+    <p class="note" style="margin:0">Los montos son los gastos e ingresos de este mes que marcaste con esa área en Cuentas.</p></section>
+  <form class="card" id="f-varea" autocomplete="off"><h2>Nueva área</h2>
+    <div class="row" style="align-items:flex-end"><label class="grow">Nombre<input id="va-nombre" placeholder="Ej. Familia, Salud" required></label><button type="submit">Agregar área</button></div></form>`;
+}
+async function vAreaDetalle(id){
+  const a=area(id);const k=ym(new Date());const m=await month(k);const hoy=ymd(new Date());const d=dineroArea(id,k);
+  const ts=tareas().filter(t=>t.area===id);const pend=ts.filter(t=>!t.hecha).sort(ordenTareas);const hechas=ts.filter(t=>t.hecha).sort((x,y)=>(y.doneAt||0)-(x.doneAt||0));
+  const ps=S.vida.proyectos.lista.filter(p=>p.area===id);const notas=S.vida.notas.lista.filter(n=>n.area===id).sort((x,y)=>y.ts-x.ts);
+  const evs=S.vida.eventos.lista.filter(e=>e.area===id&&((e.dias&&e.dias.length)||e.fecha>=hoy)).sort((x,y)=>(x.fecha||'').localeCompare(y.fecha||''));
+  const gs=m.gastos.filter(g=>g.area===id).sort((x,y)=>y.fecha.localeCompare(x.fecha));
+  const pre=S.vPre&&tareas().find(t=>t.id===S.vPre);
+  return `<button type="button" class="ghost volver" data-act="vareaback">‹ Todas las áreas</button>`+header(a.nombre,'Área')+`
+  <div class="stats"><div class="stat"><span class="eyebrow">Pendientes</span><span class="v">${pend.length}</span></div>
+    <div class="stat"><span class="eyebrow">Gastado este mes</span><span class="v">${$$(d.sale)}</span></div>
+    ${d.entra?`<div class="stat wide"><span class="eyebrow">Ingresos este mes</span><span class="v pos">${$$(d.entra)}</span></div>`:''}</div>
+  <section class="card"><h2>Pendientes</h2><div class="list">${pend.length?pend.map(tareaItem).join(''):`<div class="empty">Sin pendientes en ${esc(a.nombre)}.</div>`}</div>
+    ${hechas.length?`<details><summary><span>Hechas</span><span class="num">${hechas.length}</span></summary><div class="list">${hechas.slice(0,20).map(tareaItem).join('')}</div></details>`:''}</section>
+  ${tareaForm({area:id,titulo:'Agregar pendiente en '+a.nombre})}
+  <section class="card"><h2>Proyectos y metas</h2>
+    ${ps.length?ps.map(p=>{const pt=tareas().filter(t=>t.proyecto===p.id);const h=pt.filter(t=>t.hecha).length;const pct=pt.length?h/pt.length*100:0;
+      return `<div class="cat"><div class="row between"><div class="grow"><b>${esc(p.nombre)}</b>${p.meta?`<br><small class="muted">Meta: ${esc(shortDate(parseDay(p.meta)))}</small>`:''}</div><span class="num">${h} de ${pt.length}</span>${delBtn('delvproy',`data-id="${esc(p.id)}"`)}</div><div class="bar save"><i style="width:${pct}%"></i></div></div>`}).join(''):'<div class="empty">Crea un proyecto o una meta, y asígnale pendientes para ver cuánto avanzas.</div>'}
+    <form id="f-vproy" data-area="${esc(id)}" class="row" autocomplete="off" style="align-items:flex-end"><label class="grow">Nombre<input id="vp-nombre" placeholder="Ej. Terminar el semestre" required></label><label class="grow">Fecha meta (opcional)<input type="date" id="vp-meta"></label><button type="submit">Crear</button></form></section>
+  <section class="card"><h2>Agenda</h2><div class="list">${evs.length?evs.map(e=>eventoItem(e,true)).join(''):'<div class="empty">Sin eventos próximos. Se agregan en la pestaña Semana.</div>'}</div></section>
+  <section class="card"><h2>Notas</h2>
+    <form id="f-vnota" data-area="${esc(id)}" class="row" autocomplete="off" style="align-items:flex-end"><label class="grow">Nota rápida<input id="vn-texto" placeholder="Una idea, un recordatorio…" required></label><button type="submit">Guardar</button></form>
+    <div class="list">${notas.map(n=>`<div class="item v3"><span class="t">${esc(ddmm(ymd(new Date(n.ts))))}</span><div class="d nota">${esc(n.texto)}</div>${delBtn('delvnota',`data-id="${esc(n.id)}"`)}</div>`).join('')}</div></section>
+  <form class="card" id="f-agasto" data-area="${esc(id)}" autocomplete="off"><h2>Gasto de ${esc(a.nombre)}</h2>
+    ${pre?`<div class="callout">Registrando el costo de <b>${esc(pre.titulo)}</b>.</div>`:''}
+    <div class="row"><label class="grow">Monto (USD)<input class="money" id="ag-monto" inputmode="decimal" placeholder="0,00" value="${pre&&pre.monto?fmtN.format(pre.monto):''}" required></label>
+    <label class="grow">Fecha<input type="date" id="ag-fecha" value="${hoy}" max="${hoy}" required></label></div>
+    <div class="row"><label class="grow">Categoría<select id="ag-cat">${S.settings.cats.filter(x=>x.id!=='tarjeta').map(x=>`<option value="${esc(x.id)}" ${x.id==='otros'?'selected':''}>${esc(x.nombre)}</option>`).join('')}</select></label>
+    <label class="grow">Cómo pagaste<select id="ag-met">${[...Object.keys(CASH),...cards().map(x=>x.id)].map(x=>`<option value="${esc(x)}">${isCard(x)?'Tarjeta de crédito · ':''}${esc(metName(x))}</option>`).join('')}</select></label></div>
+    <label>Nota (opcional)<input id="ag-nota" value="${pre?esc(pre.titulo):''}"></label>
+    <button class="primary" type="submit">Registrar en Cuentas</button>
+    <div class="list">${gs.map(g=>gastoItem(g,k)).join('')}</div></form>
+  ${AREAS_FIJAS.includes(id)?'':`<button type="button" class="danger" data-act="delvarea" data-id="${esc(id)}">Quitar esta área</button>`}`;
+}
+async function vHabitos(){
+  const hoy=ymd(new Date());const hs=S.vida.habitos.lista;const dias=[6,5,4,3,2,1,0].map(n=>shiftDay(hoy,-n));
+  const sug=HAB_SUG.filter(n=>!hs.some(h=>h.nombre.toLowerCase()===n.toLowerCase()));
+  return header('Mis hábitos','Mi vida')+`
+  <section class="card">${hs.length?hs.map(h=>{const r=racha(h);
+    return `<div class="cat"><div class="row between"><div class="grow"><b>${esc(h.nombre)}</b><br><small class="meta">${areaTag(h.area)}<span>${r?`${r} día${r===1?'':'s'} seguido${r===1?'':'s'}`:'Empieza hoy'}</span></small></div>${delBtn('delvhab',`data-id="${esc(h.id)}"`)}</div>
+      <div class="hdias">${dias.map(f=>{const x=parseDay(f);const l=DIAS.find(d=>d[0]===x.getDay());return `<button type="button" class="hd ${f===hoy?'esHoy':''}" data-act="vhab" data-id="${esc(h.id)}" data-f="${f}" aria-pressed="${!!h.hechos[f]}" aria-label="${esc(h.nombre)}, ${esc(dayLabel(f))}"><small>${l[1]}</small>${x.getDate()}</button>`}).join('')}</div></div>`}).join(''):'<div class="empty">Elige un hábito de abajo o crea el tuyo. Cada día lo marcas aquí o desde Hoy.</div>'}</section>
+  <form class="card" id="f-vhabito" autocomplete="off"><h2>Nuevo hábito</h2>
+    ${sug.length?`<div class="chips small">${sug.map(n=>`<button type="button" class="chip" data-act="vsughab" data-n="${esc(n)}">+ ${esc(n)}</button>`).join('')}</div>`:''}
+    <div class="row" style="align-items:flex-end"><label class="grow">Nombre<input id="vh-nombre" placeholder="Ej. Revisar la agenda" required></label>
+    <label class="grow">Área<select id="vh-area">${areaOptions('personal')}</select></label><button type="submit">Agregar</button></div></form>`;
+}
+
+// ---------- acciones de mi vida ----------
+function guardarZona(){try{localStorage.setItem('mc-zona',S.zona);localStorage.setItem('mc-vtab',S.vtab)}catch(_){}}
+async function vidaAct(act,b){
+  if(act==='irvida'){S.zona='vida';guardarZona();await render();window.scrollTo(0,0);return true}
+  if(act==='ircuentas'){S.zona='cuentas';if(b.dataset.tab2){S.tab=b.dataset.tab2;try{localStorage.setItem('mc-tab',S.tab)}catch(_){}}guardarZona();await render();window.scrollTo(0,0);return true}
+  if(act==='irtab'){S.vtab=b.dataset.id;guardarZona();await render();window.scrollTo(0,0);return true}
+  if(act==='vsem'){const d=+b.dataset.d;S.vSem=d===0?0:S.vSem+d;render();return true}
+  if(act==='varea'){S.vArea=b.dataset.id;S.vPre=null;await render();window.scrollTo(0,0);return true}
+  if(act==='vareaback'){S.vArea=null;S.vPre=null;await render();window.scrollTo(0,0);return true}
+  if(act==='vtarea'){const t=tareas().find(x=>x.id===b.dataset.id);if(!t)return true;t.hecha=!t.hecha;t.doneAt=t.hecha?Date.now():0;saveV('tareas');render();return true}
+  if(act==='vpasar'){const t=tareas().find(x=>x.id===b.dataset.id);if(!t)return true;
+    if(!area(t.area).id){toast('Esta tarea ya no tiene área. Registra el gasto desde Cuentas.');return true}
+    S.vPre=t.id;S.vArea=t.area;S.vtab='areas';guardarZona();await render();document.getElementById('f-agasto')?.scrollIntoView({block:'start'});return true}
+  if(act==='vgcalok'){S.gcalMsg='';render();return true}
+  if(act==='vhab'){const h=S.vida.habitos.lista.find(x=>x.id===b.dataset.id);if(!h)return true;const f=b.dataset.f;if(h.hechos[f])delete h.hechos[f];else h.hechos[f]=1;saveV('habitos');render();return true}
+  if(act==='vsughab'){S.vida.habitos.lista.push({id:uid(),nombre:b.dataset.n,area:/orar|biblia/i.test(b.dataset.n)?'iglesia':/estudiar/i.test(b.dataset.n)?'universidad':'personal',hechos:{}});saveV('habitos');render();return true}
+  return false;
+}
+function delVida(act,b){
+  const quitar=(k,id)=>{S.vida[k].lista=S.vida[k].lista.filter(x=>x.id!==id);saveV(k)};const id=b.dataset.id;
+  if(act==='delvtarea'){quitar('tareas',id);toast('Pendiente borrado')}
+  if(act==='delvevento'){const ev=S.vida.eventos.lista.find(x=>x.id===id);quitar('eventos',id);if(ev&&ev.gcalId)S.gcalMsg=`"${ev.titulo}" se quitó de la app, pero sigue en Google Calendar. Bórralo allí.`;toast('Quitado de la agenda')}
+  if(act==='delvhab'){quitar('habitos',id);toast('Hábito quitado')}
+  if(act==='delvnota'){quitar('notas',id);toast('Nota borrada')}
+  if(act==='delvproy'){quitar('proyectos',id);tareas().forEach(t=>{if(t.proyecto===id)t.proyecto=''});saveV('tareas');toast('Proyecto quitado; sus pendientes se conservan')}
+  if(act==='delvarea'){quitar('areas',id);['tareas','eventos','proyectos','habitos','notas'].forEach(k=>{let ch=false;S.vida[k].lista.forEach(x=>{if(x.area===id){x.area='personal';ch=true}});if(ch)saveV(k)});S.vArea=null;toast('Área quitada; su contenido pasó a Personal')}
+}
+async function vidaSubmit(f,val,need){
+  if(f.id==='f-vtarea'){const titulo=val('vt-titulo').trim();if(!titulo)return false;
+    const mr=val('vt-monto').trim();const monto=mr===''?0:parseMoney(mr);if(isNaN(monto)||monto<0){toast('Escribe un costo válido, por ejemplo 25,50');return false}
+    const pr=document.getElementById('vt-proy');const a=val('vt-area');S.lastArea=a;
+    tareas().push({id:uid(),titulo,area:a,fecha:val('vt-fecha'),prio:document.getElementById('vt-prio').checked?'alta':'normal',monto,proyecto:pr?pr.value:'',hecha:false,ts:Date.now()});saveV('tareas');toast('Pendiente agregado');return true}
+  if(f.id==='f-vevento'){const titulo=val('ve-titulo').trim();if(!titulo)return false;
+    const dias=[...f.querySelectorAll('[data-dia]:checked')].map(x=>+x.dataset.dia);const fecha=val('ve-fecha');
+    if(!dias.length&&!fecha){toast('Elige una fecha o los días en que se repite');return false}
+    const cada=dias.length?+val('ve-cada'):1;if(cada>1&&!fecha){toast('Elige la fecha de la semana en que empieza');return false}
+    const a=val('ve-area');S.lastArea=a;const ev={id:uid(),titulo,area:a,lugar:val('ve-lugar').trim(),hora:val('ve-hora'),fin:val('ve-fin'),fecha:dias.length?'':fecha,dias,...(cada>1?{cada,desde:shiftDay(fecha,-((parseDay(fecha).getDay()+6)%7))}:{})};S.vida.eventos.lista.push(ev);saveV('eventos');toast(dias.length?'Agregado a tu horario':'Agregado a la agenda');
+    return true}
+  if(f.id==='f-varea'){const nombre=val('va-nombre').trim();if(!nombre)return false;S.vida.areas.lista.push({id:'a'+uid(),nombre,color:'a6'});saveV('areas');toast('Área agregada');return true}
+  if(f.id==='f-vproy'){const nombre=val('vp-nombre').trim();if(!nombre)return false;S.vida.proyectos.lista.push({id:uid(),nombre,area:f.dataset.area,meta:val('vp-meta')});saveV('proyectos');toast('Proyecto creado');return true}
+  if(f.id==='f-vnota'){const texto=val('vn-texto').trim();if(!texto)return false;S.vida.notas.lista.push({id:uid(),area:f.dataset.area,texto,ts:Date.now()});saveV('notas');toast('Nota guardada');return true}
+  if(f.id==='f-vhabito'){const nombre=val('vh-nombre').trim();if(!nombre)return false;S.vida.habitos.lista.push({id:uid(),nombre,area:val('vh-area'),hechos:{}});saveV('habitos');toast('Hábito agregado');return true}
+  if(f.id==='f-agasto'){const n=need('ag-monto');if(n==null)return false;const fecha=val('ag-fecha');
+    if(!fecha||fecha>ymd(new Date())){toast('Elige una fecha válida, que no sea futura');return false}
+    const g=await addGasto(n,val('ag-cat'),val('ag-nota').trim(),{metodo:val('ag-met'),fecha,area:f.dataset.area});
+    const pre=S.vPre&&tareas().find(t=>t.id===S.vPre);if(pre){pre.gastoId=g.id;saveV('tareas')}S.vPre=null;
+    toast(`Registrado ${$$(n)} en Cuentas`);return true}
+  return false;
+}
+
 // ---------- render ----------
 let renderSeq=0;
 async function render(){
   const seq=++renderSeq;
-  document.getElementById('tabs').innerHTML=TABS.map(t=>`<button data-tab="${t.id}" ${S.tab===t.id?'aria-current="page"':''}><svg viewBox="0 0 24 24" aria-hidden="true">${t.icon}</svg>${t.label}</button>`).join('');
+  const enVida=S.zona==='vida';const navT=document.getElementById('tabs');
+  navT.style.gridTemplateColumns=`repeat(${enVida?VTABS.length:TABS.length},1fr)`;
+  navT.innerHTML=enVida
+    ?VTABS.map(t=>`<button data-vtab="${t.id}" ${S.vtab===t.id?'aria-current="page"':''}><svg viewBox="0 0 24 24" aria-hidden="true">${t.icon}</svg>${t.label}</button>`).join('')
+    :TABS.map(t=>`<button data-tab="${t.id}" ${S.tab===t.id?'aria-current="page"':''}><svg viewBox="0 0 24 24" aria-hidden="true">${t.icon}</svg>${t.label}</button>`).join('');
   document.querySelector('.tabs').hidden=!!S.needLogin;
   if(S.needLogin){document.getElementById('app').innerHTML=viewLogin();return}
   if(!S.ready)return;
-  const v={hoy:viewHoy,mes:viewMes,reparto:viewReparto,plan:viewPlan,deuda:viewDeuda,cuenta:viewCuenta}[S.tab];
-  const html=await v();if(seq!==renderSeq)return;
+  const v=enVida?{hoy:vHoy,semana:vSemana,areas:vAreas,habitos:vHabitos}[S.vtab]:{hoy:viewHoy,mes:viewMes,reparto:viewReparto,plan:viewPlan,deuda:viewDeuda,cuenta:viewCuenta}[S.tab];
+  let html=await v();if(seq!==renderSeq)return;
+  if(!enVida)html='<button type="button" class="ghost volver" data-act="irvida">‹ Volver a Mi vida</button>'+html;
   document.getElementById('app').innerHTML=html;
 }
 
 // ---------- eventos ----------
 document.addEventListener('click',async e=>{
+  const vb=e.target.closest('[data-vtab]');
+  if(vb){const id=vb.dataset.vtab;S.editG=null;
+    if(id==='cuentas')S.zona='cuentas';else{if(S.vtab===id&&id==='areas')S.vArea=null;S.vtab=id;S.vPre=null}
+    guardarZona();render();window.scrollTo(0,0);return}
   const tb=e.target.closest('[data-tab]');
   if(tb){S.tab=tb.dataset.tab;try{localStorage.setItem('mc-tab',S.tab)}catch(_){}S.editCard=null;S.addCard=false;S.editG=null;render();window.scrollTo(0,0);return}
   const b=e.target.closest('[data-act]');if(!b)return;const act=b.dataset.act;
+  if(await vidaAct(act,b))return;
   if(act==='selcat'){S.selCat=b.dataset.id;
     document.querySelectorAll('[data-act="selcat"]').forEach(c=>c.setAttribute('aria-pressed',c.dataset.id===S.selCat));return}
   if(act==='selmet'){let v=b.dataset.id;
@@ -590,6 +871,7 @@ document.addEventListener('click',async e=>{
     saveDeuda();toast(`Pago de ${$$(p.monto)} registrado`);render();return}
   if(act.startsWith('del')){
     if(!b.classList.contains('armed')){const lab=b.textContent;b.classList.add('armed');b.textContent='Toca otra vez para borrar';setTimeout(()=>{if(b.isConnected){b.classList.remove('armed');b.textContent=lab}},4000);return}
+    delVida(act,b);
     if(act==='delgasto'){await delGasto(b.dataset.k,b.dataset.id);S.editG=null;toast('Gasto borrado')}
     if(act==='delingreso'){const m=await month(b.dataset.k);m.ingresos=m.ingresos.filter(x=>x.id!==b.dataset.id);saveMonth(b.dataset.k);toast('Ingreso borrado')}
     if(act==='delcat'){S.settings.cats=S.settings.cats.filter(c=>c.id!==b.dataset.id);delete S.settings.presupuesto[b.dataset.id];if(S.selCat===b.dataset.id)S.selCat=defaultCat();saveSettings();toast('Categoría quitada')}
@@ -622,13 +904,13 @@ document.addEventListener('submit',async e=>{
     p.catch(er=>toast(authMsg(er)));return}
   if(f.id==='f-gasto'){const n=need('g-monto');if(n==null)return;
     const fecha=val('g-fecha')||ymd(new Date());if(fecha>ymd(new Date())){toast('La fecha no puede ser en el futuro');return}
-    await addGasto(n,S.selCat,val('g-nota').trim(),{metodo:S.selMet,fecha});
+    await addGasto(n,S.selCat,val('g-nota').trim(),{metodo:S.selMet,fecha,area:val('g-area')});
     toast(`Registrado ${$$(n)} · ${isCard(S.selMet)?'Tarjeta ':''}${metName(S.selMet)}${fecha!==ymd(new Date())?' · '+ddmm(fecha):''}`)}
   else if(f.id==='f-edit'){const n=need('e-monto');if(n==null)return;
     const fecha=val('e-fecha');if(!fecha||fecha>ymd(new Date())){toast('Elige una fecha válida, que no sea futura');return}
     const oldK=f.dataset.k;const m=await month(oldK);const g=m.gastos.find(x=>x.id===f.dataset.id);if(!g){S.editG=null;render();return}
     const ec=document.getElementById('e-cat');
-    Object.assign(g,{monto:n,nota:val('e-nota').trim(),metodo:val('e-met')});if(ec)g.cat=ec.value;
+    Object.assign(g,{monto:n,nota:val('e-nota').trim(),metodo:val('e-met')});if(ec)g.cat=ec.value;const ea=document.getElementById('e-area');if(ea){if(ea.value)g.area=ea.value;else delete g.area}
     if(g.fecha!==fecha){g.fecha=fecha;g.hora=''}
     const newK=fecha.slice(0,7);
     if(newK!==oldK){m.gastos=m.gastos.filter(x=>x.id!==g.id);saveMonth(oldK);const m2=await month(newK);m2.gastos.push(g);saveMonth(newK)}else saveMonth(oldK);
@@ -639,7 +921,7 @@ document.addEventListener('submit',async e=>{
     S.editG=null;toast('Cambios guardados')}
   else if(f.id==='f-ingreso'){const n=need('i-monto');if(n==null)return;const k=S.viewMonth;const m=await month(k);
     const today=new Date();const fecha=k===ym(today)?ymd(today):k+'-01';
-    m.ingresos.push({id:uid(),monto:n,desc:val('i-desc').trim(),fecha,metodo:val('i-met')});saveMonth(k);toast('Ingreso agregado')}
+    m.ingresos.push({id:uid(),monto:n,desc:val('i-desc').trim(),fecha,metodo:val('i-met'),area:val('i-area')});saveMonth(k);toast('Ingreso agregado')}
   else if(f.id==='f-cat'){const nombre=val('c-nombre').trim();if(!nombre)return;
     S.settings.cats.splice(S.settings.cats.length-1,0,{id:'c'+uid(),nombre,tipo:val('c-tipo')});saveSettings();toast('Categoría agregada')}
   else if(f.id==='f-card'){const nombre=val('k-nombre').trim();const corte=parseInt(val('k-corte'),10),pago=parseInt(val('k-pago'),10);
@@ -667,12 +949,12 @@ document.addEventListener('submit',async e=>{
   else if(f.id==='f-cobro'){const nombre=val('cb-nombre').trim();const n=need('cb-monto');if(!nombre||n==null)return;
     S.cobros.lista.push({id:uid(),nombre,monto:n,cobrado:false});saveCobros();toast(`${nombre} te debe ${$$(n)}`)}
   else if(f.id==='f-meta'){const v=val('ah-meta').trim()===''?0:parseMoney(val('ah-meta'));if(isNaN(v)||v<0){toast('Escribe un monto válido');return}S.ahorro.meta=v;saveAhorro();toast(v?'Meta fijada':'Meta quitada')}
-  else return;
+  else if(!await vidaSubmit(f,val,need))return;
   render();
 });
 
 // ---------- inicio ----------
-const APP_VERSION='1.0.0';
+const APP_VERSION='1.1.0';
 function authMsg(e){const c=e&&e.code||'';
   if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return 'Correo o contraseña incorrectos';
   if(c.includes('email-already-in-use'))return 'Ese correo ya tiene cuenta. Toca "Ya tengo cuenta".';
@@ -693,6 +975,7 @@ async function loadAll(){
   S.ahorro=await loadDoc('ahorro',{meta:0,movs:[]});S.ahorro.movs=S.ahorro.movs||[];
   S.plan=await loadDoc('plan',DEFAULT_PLAN);S.plan.mac=S.plan.mac||{meta:0,pagos:[]};S.plan.meses=S.plan.meses||[];
   S.cobros=await loadDoc('cobros',DEFAULT_COBROS);S.cobros.lista=S.cobros.lista||[];
+  S.vArea=null;S.vPre=null;S.gcalMsg='';await loadVida();
   const now=new Date();let start=new Date(now.getFullYear(),now.getMonth()-2,1);
   Object.values(S.deuda.saldos).forEach(s=>{if(s&&s.ts){const t=new Date(s.ts);const f=new Date(t.getFullYear(),t.getMonth(),1);if(f<start)start=f}});
   const lim=new Date(now.getFullYear(),now.getMonth()-24,1);if(start<lim)start=lim;

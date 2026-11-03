@@ -1,7 +1,7 @@
 {
-  "name": "Mis Cuentas",
-  "short_name": "Mis Cuentas",
-  "description": "Control de ingresos, gastos diarios, tarjetas de crédito y ahorro.",
+  "name": "Mi Vida y Cuentas",
+  "short_name": "Mi Vida",
+  "description": "Pendientes, agenda, hábitos, gastos, tarjetas y ahorro.",
   "lang": "es",
   "start_url": "./",
   "scope": "./",
