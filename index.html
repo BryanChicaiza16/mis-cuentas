@@ -288,6 +288,12 @@ input,select{border-radius:14px;border-color:transparent}
 .dia.esHoy{border:0}
 .wrap{padding-block:20px 170px}
 
+textarea{font:inherit;color:var(--ink);background:var(--sunk);border:1px solid transparent;border-radius:14px;padding:10px 12px;width:100%;min-width:0;resize:vertical}
+textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pl{grid-template-columns:auto minmax(0,1fr) 92px auto}
+.pl-nueva{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:end}
+.pl-nueva .grow{grid-column:1/-1}
+.pl-nueva button{grid-column:1/-1}
 html{-webkit-text-size-adjust:100%}
 :root{padding-top:env(safe-area-inset-top,0px)}
 input,select{font-size:16px}
