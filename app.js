@@ -213,9 +213,22 @@ function editForm(g){
       <button type="button" class="danger" data-act="delgasto" data-k="${g.fecha.slice(0,7)}" data-id="${g.id}">Borrar ${abono?'abono':'gasto'}</button></div>
   </form>`;
 }
+function progConfirmBox(p){
+  const c=card(p.tarjetaId);const nom=c?c.nombre:'la tarjeta';const desde=shiftDay(p.fecha,-20);
+  const suma=r2(S.deuda.abonos.filter(a=>a.tarjetaId===p.tarjetaId&&a.fecha>=desde).reduce((s,a)=>s+a.monto,0));const cubierto=suma>=p.monto-0.005;
+  const quitar=`<button type="button" class="${cubierto?'primary':''}" data-act="quitarprog" data-id="${p.id}">Ya está registrado, solo quitar el aviso</button>`;
+  const registrar=`<button type="button" class="${cubierto?'':'primary'}" data-act="pagarprogok" data-id="${p.id}">Registrar abono de ${$$(p.monto)}</button>`;
+  return `<div class="alert soft prog-conf"><div class="grow"><b>¿Ya registraste este pago de ${$$(p.monto)}?</b><br>${suma>0?`Desde el ${esc(ddmm(desde))} tienes abonos a ${esc(nom)} por <b class="num">${$$(suma)}</b>.`:`No veo abonos a ${esc(nom)} desde el ${esc(ddmm(desde))}.`}
+    <div class="row prog-bot">${cubierto?quitar+registrar:registrar+quitar}<button type="button" class="ghost" data-act="cancelprog">Cancelar</button></div></div></div>`;
+}
+function quitarProgIgual(id,n){
+  const p=progs().filter(x=>x.tarjetaId===id&&Math.abs(x.monto-n)<0.005).sort((a,b)=>a.fecha.localeCompare(b.fecha))[0];
+  if(!p)return false;S.deuda.programados=progs().filter(x=>x.id!==p.id);saveDeuda();return true;
+}
 function progAlerts(){
   const t=today0();
   return progs().filter(p=>diffDays(parseDay(p.fecha),t)<=3).sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(p=>{const c=card(p.tarjetaId);const n=diffDays(parseDay(p.fecha),t);
+    if(S.progConfirm===p.id)return progConfirmBox(p);
     return `<div class="alert"><div class="grow">Pago programado a <b>${esc(c?c.nombre:'tarjeta')}</b> de <b class="num">${$$(p.monto)}</b> ${n<0?'<b>vencido</b> desde':''} ${inDays(n)} (${esc(shortDate(parseDay(p.fecha)))}), con el dinero de ${esc(monthName(p.mesFondo).split(' ')[0])}.</div><button type="button" class="primary" data-act="pagarprog" data-id="${p.id}">Ya pagué</button></div>`}).join('');
 }
 function cardAlerts(){
@@ -407,7 +420,7 @@ function progBlock(c,i){
   const t=today0();
   return `<div class="cat" style="border-top:1px solid var(--line);padding-bottom:0">
     <div class="row between"><b>Pagos programados</b>${yaProg?`<span class="num">${$$(yaProg)}</span>`:''}</div>
-    ${ps.length?`<div class="list">${ps.map(p=>{const n=diffDays(parseDay(p.fecha),t);return `<div class="item"><span class="t">${p.fecha.slice(5).split('-').reverse().join('/')}</span><div class="d"><b>${$$(p.monto)}</b><small>Con el dinero de ${esc(monthName(p.mesFondo).split(' ')[0])} · ${n<0?'<span style="color:var(--debt)">vencido</span>':inDays(n)}${p.nota?' · '+esc(p.nota):''}</small></div><button type="button" data-act="pagarprog" data-id="${p.id}">Ya pagué</button>${delBtn('delprog',`data-id="${p.id}"`)}</div>`}).join('')}</div>`:
+    ${ps.length?`<div class="list">${ps.map(p=>{const n=diffDays(parseDay(p.fecha),t);if(S.progConfirm===p.id&&n>3)return progConfirmBox(p);return `<div class="item"><span class="t">${p.fecha.slice(5).split('-').reverse().join('/')}</span><div class="d"><b>${$$(p.monto)}</b><small>Con el dinero de ${esc(monthName(p.mesFondo).split(' ')[0])} · ${n<0?'<span style="color:var(--debt)">vencido</span>':inDays(n)}${p.nota?' · '+esc(p.nota):''}</small></div><button type="button" data-act="pagarprog" data-id="${p.id}">Ya pagué</button>${delBtn('delprog',`data-id="${p.id}"`)}</div>`}).join('')}</div>`:
       '<p class="note" style="margin:0">¿No te alcanza este mes? Aparta el pago con el dinero que recibes después; la app te lo recuerda cuando se acerque la fecha.</p>'}
     <form data-prog="${esc(c.id)}" autocomplete="off" style="display:flex;flex-direction:column;gap:10px">
       <div class="row" style="align-items:flex-end">
@@ -1026,7 +1039,10 @@ document.addEventListener('click',async e=>{
   if(act==='cobrar'){const c=S.cobros.lista.find(x=>x.id===b.dataset.id);if(!c)return;c.cobrado=true;saveCobros();
     const k=ym(new Date());const m=await month(k);m.ingresos.push({id:uid(),monto:c.monto,desc:'Me pagó '+c.nombre,fecha:ymd(new Date()),metodo:'efectivo'});saveMonth(k);
     toast(`${c.nombre} te pagó ${$$(c.monto)}`);render();return}
-  if(act==='pagarprog'){const p=progs().find(x=>x.id===b.dataset.id);if(!p)return;const c=card(p.tarjetaId);
+  if(act==='pagarprog'){S.progConfirm=b.dataset.id;render();return}
+  if(act==='cancelprog'){S.progConfirm=null;render();return}
+  if(act==='quitarprog'){S.progConfirm=null;S.deuda.programados=progs().filter(x=>x.id!==b.dataset.id);saveDeuda();toast('Aviso quitado. No se agregó ningún abono.');render();return}
+  if(act==='pagarprogok'){S.progConfirm=null;const p=progs().find(x=>x.id===b.dataset.id);if(!p)return;const c=card(p.tarjetaId);
     S.deuda.programados=progs().filter(x=>x.id!==p.id);
     if(c)await addGasto(p.monto,'tarjeta','Pago programado '+c.nombre,{metodo:'debito',tarjetaId:c.id});else saveDeuda();
     saveDeuda();toast(`Pago de ${$$(p.monto)} registrado`);render();return}
@@ -1106,7 +1122,7 @@ document.addEventListener('submit',async e=>{
       const mv={id:uid(),monto:-n,fecha:ymd(new Date()),nota:'Abono a '+c.nombre};S.ahorro.movs.push(mv);
       S.deuda.abonos.push({id:uid(),monto:n,fecha:mv.fecha,ts:Date.now(),origen:'ahorro',tarjetaId:id,movId:mv.id});saveAhorro();saveDeuda()}
     else{await addGasto(n,'tarjeta','Abono '+c.nombre,{metodo:'debito',tarjetaId:id})}
-    toast(`Abono de ${$$(n)} a ${c.nombre}`)}
+    toast(quitarProgIgual(id,n)?`Abono de ${$$(n)} a ${c.nombre}. También se quitó su pago programado.`:`Abono de ${$$(n)} a ${c.nombre}`)}
   else if(f.id==='f-ahorro'){const n=need('ah-monto');if(n==null)return;await addGasto(n,'ahorro','Aporte al ahorro',{metodo:'debito'});toast(`Guardaste ${$$(n)}`)}
   else if(f.id==='f-cobro'){const nombre=val('cb-nombre').trim();const n=need('cb-monto');if(!nombre||n==null)return;
     S.cobros.lista.push({id:uid(),nombre,monto:n,cobrado:false});saveCobros();toast(`${nombre} te debe ${$$(n)}`)}
@@ -1116,7 +1132,7 @@ document.addEventListener('submit',async e=>{
 });
 
 // ---------- inicio ----------
-const APP_VERSION='1.4.0';
+const APP_VERSION='1.4.1';
 function authMsg(e){const c=e&&e.code||'';
   if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))return 'Correo o contraseña incorrectos';
   if(c.includes('email-already-in-use'))return 'Ese correo ya tiene cuenta. Toca "Ya tengo cuenta".';
@@ -1167,6 +1183,26 @@ async function init(){
     await loadAll();render();
   });
 }
+// Al volver a la app, trae lo que se cambió en otro dispositivo para no repetir pagos ni guardar datos viejos.
+async function refrescar(){
+  const ocupado=()=>{const a=document.activeElement;return !S.ready||!navigator.onLine||(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName))||S.vAdd||S.editG||S.editCard||S.addCard||S.planEdit||S.progConfirm};
+  if(ocupado())return;
+  const fijos=['settings','deuda','ahorro','plan','cobros','perfil','v-areas','v-tareas','v-eventos','v-proyectos','v-habitos','v-notas'];const meses=Object.keys(S.months).map(k=>'m'+k);
+  let docs;try{docs=await Promise.all([...fijos,...meses].map(k=>Store.get(k)))}catch(e){return}
+  if(ocupado())return;
+  const d=k=>{const i=fijos.indexOf(k);return docs[i]?clone(docs[i]):null};
+  if(d('settings'))S.settings=d('settings');
+  if(d('deuda')){S.deuda=d('deuda');S.deuda.saldos=S.deuda.saldos||{};S.deuda.abonos=S.deuda.abonos||[];S.deuda.programados=S.deuda.programados||[]}
+  if(d('ahorro')){S.ahorro=d('ahorro');S.ahorro.movs=S.ahorro.movs||[]}
+  if(d('plan')){S.plan=d('plan');S.plan.mac=S.plan.mac||{meta:0,pagos:[]};S.plan.mac.pagos=S.plan.mac.pagos||[];S.plan.meses=S.plan.meses||[]}
+  if(d('cobros')){S.cobros=d('cobros');S.cobros.lista=S.cobros.lista||[]}
+  if(d('perfil'))S.perfil=d('perfil');
+  ['areas','tareas','eventos','proyectos','habitos','notas'].forEach(k=>{const x=d('v-'+k);if(x){x.lista=x.lista||[];S.vida[k]=x}});
+  meses.forEach((k,i)=>{const x=docs[fijos.length+i];if(x){const c=clone(x);c.ingresos=c.ingresos||[];c.gastos=c.gastos||[];S.months[k.slice(1)]=c}});
+  render();
+}
+let ocultoDesde=0;
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){ocultoDesde=Date.now();return}if(ocultoDesde&&Date.now()-ocultoDesde>15000)refrescar()});
 window.addEventListener('online',()=>render());window.addEventListener('offline',()=>render());
 init();
 })();
